@@ -11,6 +11,7 @@ import {
   CACELevel,
   CACE_LEVELS,
 } from '@/types';
+import { queueSync, downloadAllFromCloud, isSupabaseConfigured } from './sync';
 
 // ============================================
 // Local Storage Keys
@@ -49,6 +50,100 @@ function getFromStorage<T>(key: string, defaultValue: T): T {
 function saveToStorage<T>(key: string, data: T): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(key, JSON.stringify(data));
+}
+
+// ============================================
+// Cloud Sync
+// ============================================
+
+/**
+ * Trigger a sync to Supabase (debounced)
+ */
+function triggerSync(): void {
+  if (typeof window === 'undefined') return;
+  
+  queueSync({
+    classes: getFromStorage<Class[]>(STORAGE_KEYS.classes, []),
+    students: getFromStorage<Student[]>(STORAGE_KEYS.students, []),
+    casasTests: getFromStorage<CASASTest[]>(STORAGE_KEYS.casasTests, []),
+    unitTests: getFromStorage<UnitTest[]>(STORAGE_KEYS.unitTests, []),
+    attendance: getFromStorage<Attendance[]>(STORAGE_KEYS.attendance, []),
+    reportCards: getFromStorage<ReportCard[]>(STORAGE_KEYS.reportCards, []),
+  });
+}
+
+/**
+ * Load data from Supabase cloud (called once on app startup)
+ * Merges cloud data with local data, preferring newer records
+ */
+export async function syncFromCloud(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  if (!isSupabaseConfigured()) return false;
+  
+  try {
+    const cloudData = await downloadAllFromCloud();
+    if (!cloudData) return false;
+    
+    // Get local data
+    const localClasses = getFromStorage<Class[]>(STORAGE_KEYS.classes, []);
+    const localStudents = getFromStorage<Student[]>(STORAGE_KEYS.students, []);
+    const localCasasTests = getFromStorage<CASASTest[]>(STORAGE_KEYS.casasTests, []);
+    const localUnitTests = getFromStorage<UnitTest[]>(STORAGE_KEYS.unitTests, []);
+    const localAttendance = getFromStorage<Attendance[]>(STORAGE_KEYS.attendance, []);
+    const localReportCards = getFromStorage<ReportCard[]>(STORAGE_KEYS.reportCards, []);
+    
+    // Merge function: combine local and cloud, prefer newer by updatedAt/createdAt
+    function mergeArrays<T extends { id: string; updatedAt?: string; createdAt?: string }>(
+      local: T[],
+      cloud: T[]
+    ): T[] {
+      const merged = new Map<string, T>();
+      
+      // Add all local items
+      local.forEach(item => merged.set(item.id, item));
+      
+      // Add/replace with cloud items if newer
+      cloud.forEach(cloudItem => {
+        const localItem = merged.get(cloudItem.id);
+        if (!localItem) {
+          merged.set(cloudItem.id, cloudItem);
+        } else {
+          // Compare timestamps
+          const localTime = new Date(localItem.updatedAt || localItem.createdAt || 0).getTime();
+          const cloudTime = new Date(cloudItem.updatedAt || cloudItem.createdAt || 0).getTime();
+          if (cloudTime > localTime) {
+            merged.set(cloudItem.id, cloudItem);
+          }
+        }
+      });
+      
+      return Array.from(merged.values());
+    }
+    
+    // Merge all data
+    const mergedClasses = mergeArrays(localClasses, cloudData.classes);
+    const mergedStudents = mergeArrays(localStudents, cloudData.students);
+    const mergedCasasTests = mergeArrays(localCasasTests, cloudData.casasTests);
+    const mergedUnitTests = mergeArrays(localUnitTests, cloudData.unitTests);
+    const mergedAttendance = mergeArrays(localAttendance, cloudData.attendance);
+    const mergedReportCards = mergeArrays(localReportCards, cloudData.reportCards);
+    
+    // Save merged data to local storage
+    saveToStorage(STORAGE_KEYS.classes, mergedClasses);
+    saveToStorage(STORAGE_KEYS.students, mergedStudents);
+    saveToStorage(STORAGE_KEYS.casasTests, mergedCasasTests);
+    saveToStorage(STORAGE_KEYS.unitTests, mergedUnitTests);
+    saveToStorage(STORAGE_KEYS.attendance, mergedAttendance);
+    saveToStorage(STORAGE_KEYS.reportCards, mergedReportCards);
+    
+    // Upload merged data back to cloud (in case local had newer items)
+    triggerSync();
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to sync from cloud:', error);
+    return false;
+  }
 }
 
 // ============================================
@@ -125,6 +220,7 @@ export function getClassesByYear(academicYear: string): Class[] {
 
 export function saveClasses(classes: Class[]): void {
   saveToStorage(STORAGE_KEYS.classes, classes);
+  triggerSync();
 }
 
 export function createClass(name: string, schedule: string, level: CACELevel = 3): Class {
@@ -190,6 +286,7 @@ export function getStudents(): Student[] {
 
 export function saveStudents(students: Student[]): void {
   saveToStorage(STORAGE_KEYS.students, students);
+  triggerSync();
 }
 
 export function getStudentsByClass(classId: string, includeDropped = false): Student[] {
@@ -271,6 +368,7 @@ export function getCASASTests(): CASASTest[] {
 
 export function saveCASASTests(tests: CASASTest[]): void {
   saveToStorage(STORAGE_KEYS.casasTests, tests);
+  triggerSync();
 }
 
 export function getCASASTestsByStudent(studentId: string, type?: 'reading' | 'listening'): CASASTest[] {
@@ -334,6 +432,7 @@ export function getUnitTests(): UnitTest[] {
 
 export function saveUnitTests(tests: UnitTest[]): void {
   saveToStorage(STORAGE_KEYS.unitTests, tests);
+  triggerSync();
 }
 
 export function getUnitTestsByStudent(studentId: string): UnitTest[] {
@@ -379,6 +478,7 @@ export function getAttendance(): Attendance[] {
 
 export function saveAttendance(attendance: Attendance[]): void {
   saveToStorage(STORAGE_KEYS.attendance, attendance);
+  triggerSync();
 }
 
 export function getAttendanceByStudent(studentId: string): Attendance[] {
@@ -456,6 +556,7 @@ export function getReportCards(): ReportCard[] {
 
 export function saveReportCards(reportCards: ReportCard[]): void {
   saveToStorage(STORAGE_KEYS.reportCards, reportCards);
+  triggerSync();
 }
 
 export function getReportCardsByStudent(studentId: string): ReportCard[] {
