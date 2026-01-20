@@ -68,7 +68,7 @@ export default function DroppedStudentsPage() {
                     </td>
                     <td className="text-gray-500">
                       {student.droppedDate
-                        ? new Date(student.droppedDate).toLocaleDateString()
+                        ? new Date(student.droppedDate + 'T00:00:00').toLocaleDateString()
                         : '—'}
                     </td>
                     <td className="text-right">

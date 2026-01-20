@@ -13,7 +13,7 @@ import {
   findOrCreateStudent,
 } from '@/lib/storage';
 import { parseTestsFileFromInput } from '@/lib/parsers';
-import { calculateTestAverage, getColorLevel } from '@/lib/calculations';
+import { calculateTestAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
 import { Student, Class, UnitTest } from '@/types';
 import {
   PlusIcon,
@@ -91,7 +91,7 @@ export default function UnitTestsPage() {
       return { student, tests, average };
     });
     
-    data.sort((a, b) => a.student.name.localeCompare(b.student.name));
+    data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
     setStudentsWithTests(data);
     
     // Sort test columns by date
@@ -315,7 +315,7 @@ export default function UnitTestsPage() {
                 <>
                   <span className="font-medium flex-1">{col.testName}</span>
                   <span className="text-gray-500 text-sm">
-                    {new Date(col.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {new Date(col.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                   <button
                     onClick={() => startEditTest(idx)}
@@ -405,10 +405,10 @@ export default function UnitTestsPage() {
         </div>
       ) : (
         <div className="card p-0 overflow-x-auto">
-          <table className="data-table text-sm">
+          <table className="data-table text-sm" style={{ tableLayout: 'auto' }}>
             <thead>
               <tr>
-                <th rowSpan={2} className="sticky left-0 bg-[var(--cace-gray)] z-10 whitespace-nowrap">Student Name</th>
+                <th rowSpan={2} className="sticky left-0 bg-[var(--cace-gray)] z-10 whitespace-nowrap w-0">Student Name</th>
                 {testColumns.map((col, idx) => (
                   <th key={idx} className="text-center border-l min-w-[90px]">
                     {col.testName}
@@ -422,7 +422,7 @@ export default function UnitTestsPage() {
               <tr>
                 {testColumns.map((col, idx) => (
                   <th key={idx} className="text-center text-xs font-normal border-l text-gray-500">
-                    {new Date(col.date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}
+                    {new Date(col.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}
                   </th>
                 ))}
                 {testColumns.length === 0 && (
@@ -433,7 +433,7 @@ export default function UnitTestsPage() {
             <tbody>
               {studentsWithTests.map(({ student, tests, average }) => (
                 <tr key={student.id}>
-                  <td className="sticky left-0 bg-white font-medium z-10 whitespace-nowrap pr-4">{student.name}</td>
+                  <td className="sticky left-0 bg-white font-medium z-10 whitespace-nowrap w-0">{student.name}</td>
                   {testColumns.map((col, idx) => {
                     const test = tests.find(t => t.testName === col.testName);
                     const isEditing = editingCell?.studentId === student.id && editingCell?.testName === col.testName;

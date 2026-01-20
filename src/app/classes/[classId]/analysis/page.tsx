@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses } from '@/lib/storage';
-import { getStudentsWithRanks, getColorLevel } from '@/lib/calculations';
+import { getStudentsWithRanks, getColorLevel, compareByLastName } from '@/lib/calculations';
 import { Class, StudentWithStats, CACE_LEVELS, CACELevel } from '@/types';
 import {
   TrophyIcon,
@@ -72,17 +72,19 @@ export default function AnalysisPage() {
 
     // Apply sort
     filtered.sort((a, b) => {
-      let aVal: number | string | null = null;
-      let bVal: number | string | null = null;
+      // Special case for name - sort by last name
+      if (sortField === 'name') {
+        const cmp = compareByLastName(a.name, b.name);
+        return sortDir === 'asc' ? cmp : -cmp;
+      }
+
+      let aVal: number | null = null;
+      let bVal: number | null = null;
 
       switch (sortField) {
         case 'rank':
           aVal = a.rank ?? 9999;
           bVal = b.rank ?? 9999;
-          break;
-        case 'name':
-          aVal = a.name.toLowerCase();
-          bVal = b.name.toLowerCase();
           break;
         case 'casasReading':
           aVal = a.casasReadingProgress ?? -1;

@@ -13,7 +13,7 @@ import {
   findOrCreateStudent,
 } from '@/lib/storage';
 import { parseAttendanceFileFromInput, calculateAttendancePercentage } from '@/lib/parsers';
-import { calculateAttendanceAverage, getColorLevel } from '@/lib/calculations';
+import { calculateAttendanceAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
 import { Student, Class, Attendance } from '@/types';
 import {
   ArrowUpTrayIcon,
@@ -101,7 +101,7 @@ export default function AttendancePage() {
       return { student, monthlyData, average };
     });
     
-    data.sort((a, b) => a.student.name.localeCompare(b.student.name));
+    data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
     setStudentAttendance(data);
   };
 

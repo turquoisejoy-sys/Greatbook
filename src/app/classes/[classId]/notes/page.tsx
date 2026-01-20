@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses, updateStudent } from '@/lib/storage';
+import { sortStudentsByLastName } from '@/lib/calculations';
 import { Student, Class } from '@/types';
 import { CheckIcon, PencilIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
@@ -29,7 +30,7 @@ export default function NotesPage() {
   }, [classId, setCurrentClassId]);
 
   const refreshStudents = () => {
-    setStudents(getStudentsByClass(classId));
+    setStudents(sortStudentsByLastName(getStudentsByClass(classId)));
   };
 
   const startEditing = (student: Student) => {
@@ -91,7 +92,7 @@ export default function NotesPage() {
                     {student.name}
                   </h3>
                   <p className="text-sm text-gray-500">
-                    Enrolled: {new Date(student.enrollmentDate).toLocaleDateString()}
+                    Enrolled: {new Date(student.enrollmentDate + 'T00:00:00').toLocaleDateString()}
                   </p>
                 </div>
                 {editingId !== student.id && (

@@ -277,3 +277,47 @@ export function getColorClass(level: ColorLevel | null): string {
       return 'bg-gray-100 text-gray-600';
   }
 }
+
+// ============================================
+// Name Sorting
+// ============================================
+
+/**
+ * Extract last name from a full name (assumes "First Last" or "First Middle Last" format)
+ */
+export function getLastName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  return parts[parts.length - 1] || fullName;
+}
+
+/**
+ * Extract first name from a full name
+ */
+export function getFirstName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  return parts[0] || fullName;
+}
+
+/**
+ * Compare two names for sorting by last name, then first name
+ */
+export function compareByLastName(a: string, b: string): number {
+  const lastA = getLastName(a).toLowerCase();
+  const lastB = getLastName(b).toLowerCase();
+  
+  if (lastA !== lastB) {
+    return lastA.localeCompare(lastB);
+  }
+  
+  // If last names are equal, sort by first name
+  const firstA = getFirstName(a).toLowerCase();
+  const firstB = getFirstName(b).toLowerCase();
+  return firstA.localeCompare(firstB);
+}
+
+/**
+ * Sort students by last name, then first name
+ */
+export function sortStudentsByLastName<T extends { name: string }>(students: T[]): T[] {
+  return [...students].sort((a, b) => compareByLastName(a.name, b.name));
+}

@@ -13,6 +13,7 @@ import {
   findStudentByName,
 } from '@/lib/storage';
 import { parseAttendanceFileFromInput } from '@/lib/parsers';
+import { sortStudentsByLastName } from '@/lib/calculations';
 import { Student, Class } from '@/types';
 import {
   PlusIcon,
@@ -64,7 +65,7 @@ export default function StudentsPage() {
   }, [classId, setCurrentClassId, mounted]);
 
   const refreshStudents = () => {
-    setStudents(getStudentsByClass(classId));
+    setStudents(sortStudentsByLastName(getStudentsByClass(classId)));
   };
 
   const handleAddStudent = () => {
@@ -258,7 +259,7 @@ export default function StudentsPage() {
                     </Link>
                   </td>
                   <td className="text-gray-600">
-                    {new Date(student.enrollmentDate).toLocaleDateString()}
+                    {new Date(student.enrollmentDate + 'T00:00:00').toLocaleDateString()}
                   </td>
                   <td className="text-gray-500 text-sm max-w-xs truncate">
                     {student.notes || '—'}

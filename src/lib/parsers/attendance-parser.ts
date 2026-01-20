@@ -27,17 +27,24 @@ export interface AttendanceParseResult {
 }
 
 // Column name variations
-const NAME_COLUMNS = ['student name', 'name', 'student', 'full name', 'learner name'];
-const FIRST_NAME_COLUMNS = ['first name', 'first', 'firstname', 'given name'];
-const LAST_NAME_COLUMNS = ['last name', 'last', 'lastname', 'surname', 'family name'];
+const NAME_COLUMNS = ['student name', 'name', 'student', 'full name', 'learner name', 'learner'];
+const FIRST_NAME_COLUMNS = ['first name', 'first', 'firstname', 'given name', 'first_name'];
+const LAST_NAME_COLUMNS = ['last name', 'last', 'lastname', 'surname', 'family name', 'last_name'];
 const TOTAL_HOURS_COLUMNS = ['total hours', 'total hrs', 'hours attended', 'hrs attended', 'attended', 'actual hours', 'actual hrs'];
 const SCHEDULED_HOURS_COLUMNS = ['scheduled hours', 'scheduled hrs', 'sched hrs', 'total scheduled', 'scheduled', 'expected hours', 'expected hrs'];
+
+/**
+ * Normalize a string for column matching (handle various whitespace)
+ */
+function normalizeString(str: string): string {
+  return str?.toString().toLowerCase().replace(/\s+/g, ' ').trim() || '';
+}
 
 /**
  * Find a column by checking multiple possible names
  */
 function findColumn(headers: string[], possibleNames: string[]): number {
-  const lowerHeaders = headers.map(h => h?.toString().toLowerCase().trim() || '');
+  const lowerHeaders = headers.map(h => normalizeString(h));
   for (const name of possibleNames) {
     const index = lowerHeaders.indexOf(name);
     if (index !== -1) return index;
@@ -95,23 +102,43 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
     // Find headers (first row)
     const headers = (data[0] as string[]).map(h => String(h || ''));
     
-    // Find column indices
-    const nameCol = findColumn(headers, NAME_COLUMNS);
+    // Find column indices - FIRST check for separate first/last name columns
     const firstNameCol = findColumn(headers, FIRST_NAME_COLUMNS);
     const lastNameCol = findColumn(headers, LAST_NAME_COLUMNS);
     const totalHoursCol = findColumn(headers, TOTAL_HOURS_COLUMNS);
     const scheduledHoursCol = findColumn(headers, SCHEDULED_HOURS_COLUMNS);
     
+    // Only look for combined name column if we don't have separate first/last columns
+    // This prevents "name" from partially matching "Last Name" or "First Name"
+    const hasSeparateNameCols = firstNameCol !== -1 || lastNameCol !== -1;
+    const nameCol = hasSeparateNameCols ? -1 : findColumn(headers, NAME_COLUMNS);
+    
     // Validate required columns
-    const hasName = nameCol !== -1 || (firstNameCol !== -1 || lastNameCol !== -1);
+    const hasName = nameCol !== -1 || hasSeparateNameCols;
     if (!hasName) {
       result.errors.push('Could not find student name column. Expected: "Student Name", "Name", "Last Name", or "First Name"');
+      result.errors.push(`Found columns: ${headers.join(', ')}`);
     }
     if (totalHoursCol === -1) {
       result.errors.push('Could not find total hours column. Expected: "Total Hours", "Total Hrs", or "Hours Attended"');
     }
     if (scheduledHoursCol === -1) {
       result.errors.push('Could not find scheduled hours column. Expected: "Scheduled Hours", "Scheduled Hrs", or "Sched Hrs"');
+    }
+    
+    // Add info about which name columns were found
+    if (hasName) {
+      if (nameCol !== -1) {
+        result.warnings.push(`Using combined name column: "${headers[nameCol]}"`);
+      } else {
+        if (firstNameCol !== -1 && lastNameCol !== -1) {
+          result.warnings.push(`Using separate name columns: "${headers[firstNameCol]}" + "${headers[lastNameCol]}"`);
+        } else if (lastNameCol !== -1) {
+          result.warnings.push(`Only found last name column: "${headers[lastNameCol]}" - first names may be missing`);
+        } else if (firstNameCol !== -1) {
+          result.warnings.push(`Only found first name column: "${headers[firstNameCol]}" - last names may be missing`);
+        }
+      }
     }
     
     if (result.errors.length > 0) {
@@ -129,11 +156,35 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
       let studentName: string;
       if (nameCol !== -1) {
         studentName = String(row[nameCol] || '').trim();
+        // Handle "Last, First" format
+        if (studentName.includes(',')) {
+          const parts = studentName.split(',').map(p => p.trim());
+          if (parts.length >= 2) {
+            studentName = `${parts[1]} ${parts[0]}`; // Convert to "First Last"
+          }
+        }
       } else {
         const firstName = firstNameCol !== -1 ? String(row[firstNameCol] || '').trim() : '';
         const lastName = lastNameCol !== -1 ? String(row[lastNameCol] || '').trim() : '';
         // Combine as "First Last" or just use what we have
-        studentName = [firstName, lastName].filter(Boolean).join(' ').trim();
+        if (firstName && lastName) {
+          studentName = `${firstName} ${lastName}`;
+        } else if (lastName && !firstName) {
+          // Only have last name - check if it contains comma (Last, First format)
+          if (lastName.includes(',')) {
+            const parts = lastName.split(',').map(p => p.trim());
+            if (parts.length >= 2) {
+              studentName = `${parts[1]} ${parts[0]}`; // Convert to "First Last"
+            } else {
+              studentName = lastName;
+            }
+          } else {
+            studentName = lastName;
+            // Don't warn - this is expected if file only has last names
+          }
+        } else {
+          studentName = firstName || lastName || '';
+        }
       }
       
       if (!studentName) {

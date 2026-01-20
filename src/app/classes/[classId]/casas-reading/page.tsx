@@ -13,7 +13,7 @@ import {
   findOrCreateStudent,
 } from '@/lib/storage';
 import { parseCASASFileFromInput } from '@/lib/parsers';
-import { calculateCASASAverage, calculateCASASProgress, getColorLevel } from '@/lib/calculations';
+import { calculateCASASAverage, calculateCASASProgress, getColorLevel, compareByLastName } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
 import {
   PlusIcon,
@@ -79,7 +79,7 @@ export default function CASASReadingPage() {
       return { student, tests, average, progress };
     });
     
-    data.sort((a, b) => a.student.name.localeCompare(b.student.name));
+    data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
     setStudentsWithTests(data);
     setMaxTests(Math.max(maxTestCount, 1)); // At least 1 column
   };
@@ -327,7 +327,7 @@ export default function CASASReadingPage() {
                           className="text-center text-xs border-l cursor-pointer hover:bg-gray-50"
                           onClick={() => startEdit(student.id, idx, test)}
                         >
-                          {test?.date ? new Date(test.date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) : '—'}
+                          {test?.date ? new Date(test.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) : '—'}
                         </td>
                         <td 
                           className="text-center text-xs cursor-pointer hover:bg-gray-50"
