@@ -67,7 +67,7 @@ export default function NotesPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Student Notes</h1>
-        <p className="text-gray-600">{currentClass.name} • {currentClass.period}</p>
+        <p className="text-gray-600">{currentClass.name} • {currentClass.schedule}</p>
         <p className="text-sm text-gray-500 mt-2">
           Personal notes for each student. These are for your reference only and won't appear on report cards.
         </p>

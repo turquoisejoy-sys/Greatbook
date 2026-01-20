@@ -114,7 +114,7 @@ export default function DroppedStudentsPage() {
                   className="w-full p-3 text-left rounded-lg border hover:bg-[var(--cace-gray)] hover:border-[var(--cace-teal)] transition-colors"
                 >
                   <span className="font-medium">{cls.name}</span>
-                  <span className="text-gray-500 ml-2">({cls.period})</span>
+                  <span className="text-gray-500 ml-2">({cls.schedule})</span>
                 </button>
               ))}
             </div>

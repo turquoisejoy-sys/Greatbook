@@ -7,9 +7,11 @@ import {
   createClass, 
   deleteClass, 
   getStudentsByClass,
-  getStudents 
+  getStudents,
+  getCurrentAcademicYear,
+  getAcademicYearOptions,
 } from '@/lib/storage';
-import { Class, Student } from '@/types';
+import { Class, Student, CACELevel, CACE_LEVELS } from '@/types';
 import { 
   PlusIcon, 
   TrashIcon, 
@@ -22,27 +24,38 @@ import Link from 'next/link';
 export default function Dashboard() {
   const { currentClassId, setCurrentClassId, refreshClasses, mounted } = useApp();
   const [classes, setClasses] = useState<Class[]>([]);
+  const [selectedYear, setSelectedYear] = useState<string>('');
+  const [yearOptions, setYearOptions] = useState<string[]>([]);
   const [showAddClass, setShowAddClass] = useState(false);
   const [newClassName, setNewClassName] = useState('');
-  const [newClassPeriod, setNewClassPeriod] = useState('Morning');
+  const [newClassSchedule, setNewClassSchedule] = useState('Morning');
+  const [newClassLevel, setNewClassLevel] = useState<CACELevel>(3);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Student[]>([]);
 
   useEffect(() => {
     if (mounted) {
-      setClasses(getClasses());
+      const allClasses = getClasses();
+      setClasses(allClasses);
+      setYearOptions(getAcademicYearOptions());
+      // Default to current academic year
+      if (!selectedYear) {
+        setSelectedYear(getCurrentAcademicYear());
+      }
     }
-  }, [mounted]);
+  }, [mounted, selectedYear]);
 
   const handleAddClass = () => {
     if (!newClassName.trim()) return;
-    const newClass = createClass(newClassName.trim(), newClassPeriod);
+    const newClass = createClass(newClassName.trim(), newClassSchedule, newClassLevel);
     setClasses(getClasses());
+    setYearOptions(getAcademicYearOptions());
     refreshClasses();
     setCurrentClassId(newClass.id);
     setShowAddClass(false);
     setNewClassName('');
-    setNewClassPeriod('Morning');
+    setNewClassSchedule('Morning');
+    setNewClassLevel(3);
   };
 
   const handleDeleteClass = (classId: string, e: React.MouseEvent) => {
@@ -73,6 +86,8 @@ export default function Dashboard() {
     setSearchResults(matches.slice(0, 10));
   };
 
+  // Filter classes by selected year
+  const filteredClasses = classes.filter(c => c.academicYear === selectedYear);
   const selectedClass = classes.find(c => c.id === currentClassId);
   const studentsInClass = currentClassId && mounted ? getStudentsByClass(currentClassId) : [];
 
@@ -110,7 +125,8 @@ export default function Dashboard() {
             placeholder="Search students by name..."
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
-            className="input pl-10"
+            className="input"
+            style={{ paddingLeft: '2.5rem' }}
           />
         </div>
         {searchResults.length > 0 && (
@@ -140,7 +156,18 @@ export default function Dashboard() {
       {/* Classes Grid */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-[var(--cace-navy)]">Your Classes</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-semibold text-[var(--cace-navy)]">Your Classes</h2>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="input w-auto text-sm"
+            >
+              {yearOptions.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
           <button 
             onClick={() => setShowAddClass(true)}
             className="btn btn-primary"
@@ -150,22 +177,28 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {classes.length === 0 ? (
+        {filteredClasses.length === 0 ? (
           <div className="card text-center py-12">
             <AcademicCapIcon className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-medium text-gray-600 mb-2">No classes yet</h3>
-            <p className="text-gray-500 mb-4">Create your first class to get started</p>
-            <button 
-              onClick={() => setShowAddClass(true)}
-              className="btn btn-accent"
-            >
-              <PlusIcon className="w-5 h-5" />
-              Create Class
-            </button>
+            <h3 className="text-lg font-medium text-gray-600 mb-2">No classes for {selectedYear}</h3>
+            <p className="text-gray-500 mb-4">
+              {selectedYear === getCurrentAcademicYear() 
+                ? 'Create your first class to get started' 
+                : 'No classes were created for this year'}
+            </p>
+            {selectedYear === getCurrentAcademicYear() && (
+              <button 
+                onClick={() => setShowAddClass(true)}
+                className="btn btn-accent"
+              >
+                <PlusIcon className="w-5 h-5" />
+                Create Class
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {classes.map(cls => {
+            {filteredClasses.map(cls => {
               const studentCount = getStudentsByClass(cls.id).length;
               const isSelected = cls.id === currentClassId;
               return (
@@ -177,11 +210,14 @@ export default function Dashboard() {
                       ? 'ring-2 ring-[var(--cace-teal)] border-[var(--cace-teal)]' 
                       : ''
                   }`}
+                  style={isSelected ? { boxShadow: '0 0 20px 4px rgba(0, 181, 216, 0.35)' } : {}}
                 >
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="font-semibold text-lg">{cls.name}</h3>
-                      <p className="text-sm text-gray-500">{cls.period}</p>
+                      <p className="text-sm text-gray-500">
+                        {cls.schedule} • {cls.level !== undefined ? CACE_LEVELS[cls.level as CACELevel]?.name : 'Level 3'}
+                      </p>
                     </div>
                     <button
                       onClick={(e) => handleDeleteClass(cls.id, e)}
@@ -213,70 +249,36 @@ export default function Dashboard() {
       {selectedClass && (
         <div>
           <h2 className="text-xl font-semibold text-[var(--cace-navy)] mb-4">
-            {selectedClass.name} Overview
+            Overview
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Students Summary */}
-            <div className="card">
-              <h3 className="font-medium text-gray-700 mb-3">Students</h3>
-              {studentsInClass.length === 0 ? (
-                <p className="text-gray-500 text-sm">
-                  No students yet.{' '}
-                  <Link 
-                    href={`/classes/${currentClassId}/students`}
-                    className="text-[var(--cace-teal)] hover:underline"
-                  >
-                    Add students →
-                  </Link>
+          <div className="card">
+            <h3 className="font-medium text-gray-700 mb-3">Students</h3>
+            {studentsInClass.length === 0 ? (
+              <p className="text-gray-500 text-sm">
+                No students yet.{' '}
+                <Link 
+                  href={`/classes/${currentClassId}/students`}
+                  className="text-[var(--cace-teal)] hover:underline"
+                >
+                  Add students →
+                </Link>
+              </p>
+            ) : (
+              <div>
+                <p className="text-3xl font-bold text-[var(--cace-navy)]">
+                  {studentsInClass.length}
                 </p>
-              ) : (
-                <div>
-                  <p className="text-3xl font-bold text-[var(--cace-navy)]">
-                    {studentsInClass.length}
-                  </p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {studentsInClass.length === 1 ? 'student enrolled' : 'students enrolled'}
-                  </p>
-                  <Link 
-                    href={`/classes/${currentClassId}/students`}
-                    className="inline-block mt-3 text-sm text-[var(--cace-teal)] hover:underline"
-                  >
-                    Manage students →
-                  </Link>
-                </div>
-              )}
-            </div>
-
-            {/* Quick Links */}
-            <div className="card">
-              <h3 className="font-medium text-gray-700 mb-3">Quick Links</h3>
-              <div className="space-y-2">
+                <p className="text-sm text-gray-500 mt-1">
+                  {studentsInClass.length === 1 ? 'student enrolled' : 'students enrolled'}
+                </p>
                 <Link 
-                  href={`/classes/${currentClassId}/casas-reading`}
-                  className="block p-2 rounded hover:bg-gray-50 text-sm"
+                  href={`/classes/${currentClassId}/students`}
+                  className="inline-block mt-3 text-sm text-[var(--cace-teal)] hover:underline"
                 >
-                  📖 CASAS Reading
-                </Link>
-                <Link 
-                  href={`/classes/${currentClassId}/casas-listening`}
-                  className="block p-2 rounded hover:bg-gray-50 text-sm"
-                >
-                  🎧 CASAS Listening
-                </Link>
-                <Link 
-                  href={`/classes/${currentClassId}/attendance`}
-                  className="block p-2 rounded hover:bg-gray-50 text-sm"
-                >
-                  📅 Attendance
-                </Link>
-                <Link 
-                  href={`/classes/${currentClassId}/analysis`}
-                  className="block p-2 rounded hover:bg-gray-50 text-sm"
-                >
-                  📊 Student Analysis
+                  Manage students →
                 </Link>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -302,18 +304,35 @@ export default function Dashboard() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Period
+                  Schedule
                 </label>
                 <select
-                  value={newClassPeriod}
-                  onChange={(e) => setNewClassPeriod(e.target.value)}
+                  value={newClassSchedule}
+                  onChange={(e) => setNewClassSchedule(e.target.value)}
                   className="input"
                 >
                   <option value="Morning">Morning</option>
-                  <option value="Afternoon">Afternoon</option>
                   <option value="Evening">Evening</option>
-                  <option value="Night">Night</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  CACE Level
+                </label>
+                <select
+                  value={newClassLevel}
+                  onChange={(e) => setNewClassLevel(parseInt(e.target.value) as CACELevel)}
+                  className="input"
+                >
+                  {([0, 1, 2, 3, 4, 5] as CACELevel[]).map(level => (
+                    <option key={level} value={level}>
+                      {CACE_LEVELS[level].name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  CASAS targets will be set automatically based on level
+                </p>
               </div>
             </div>
             <div className="flex gap-3 mt-6">

@@ -222,6 +222,9 @@ erDiagram
 
 - All metrics combined in one view
 - CASAS progress percentages
+  - **IMPORTANT:** Use the class's level-based CASAS targets for "% to next level" calculation
+  - Targets are auto-set when class is created based on CACE Level (0-5)
+  - Formula: `(Average Score - Level Start) ÷ (Target - Level Start) × 100`
 - Overall score calculation with **custom weights** (adjustable in settings)
   - Default weights: CASAS Reading 25%, CASAS Listening 25%, Tests 30%, Attendance 20%
 - Student ranking (1st, 2nd, etc.)

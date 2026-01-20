@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { useParams } from 'next/navigation';
 import { useApp } from '@/components/AppShell';
 import {
   getStudentsByClass,
@@ -10,22 +10,25 @@ import {
   updateStudent,
   dropStudent,
   moveStudent,
+  findStudentByName,
 } from '@/lib/storage';
+import { parseAttendanceFileFromInput } from '@/lib/parsers';
 import { Student, Class } from '@/types';
 import {
   PlusIcon,
   PencilIcon,
   TrashIcon,
   ArrowRightIcon,
+  ArrowUpTrayIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
 export default function StudentsPage() {
   const params = useParams();
-  const router = useRouter();
-  const { setCurrentClassId } = useApp();
+  const { setCurrentClassId, mounted } = useApp();
   const classId = params.classId as string;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -40,17 +43,25 @@ export default function StudentsPage() {
   const [editName, setEditName] = useState('');
   const [editEnrollment, setEditEnrollment] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    added: number;
+    skipped: number;
+    errors: string[];
+  } | null>(null);
 
   useEffect(() => {
-    const allClasses = getClasses();
-    setClasses(allClasses);
-    const cls = allClasses.find(c => c.id === classId);
-    setCurrentClass(cls || null);
-    if (cls) {
-      setCurrentClassId(cls.id);
-      refreshStudents();
+    if (mounted) {
+      const allClasses = getClasses();
+      setClasses(allClasses);
+      const cls = allClasses.find(c => c.id === classId);
+      setCurrentClass(cls || null);
+      if (cls) {
+        setCurrentClassId(cls.id);
+        refreshStudents();
+      }
     }
-  }, [classId, setCurrentClassId]);
+  }, [classId, setCurrentClassId, mounted]);
 
   const refreshStudents = () => {
     setStudents(getStudentsByClass(classId));
@@ -96,6 +107,54 @@ export default function StudentsPage() {
     setShowEditStudent(student);
   };
 
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportResult(null);
+
+    const result = await parseAttendanceFileFromInput(file);
+    
+    let added = 0;
+    let skipped = 0;
+
+    // Extract unique student names and create students
+    const seenNames = new Set<string>();
+    for (const record of result.records) {
+      const normalizedName = record.studentName.trim();
+      if (seenNames.has(normalizedName.toLowerCase())) continue;
+      seenNames.add(normalizedName.toLowerCase());
+
+      // Check if student already exists
+      const existing = findStudentByName(normalizedName, classId);
+      if (existing) {
+        skipped++;
+      } else {
+        createStudent(normalizedName, classId);
+        added++;
+      }
+    }
+
+    setImportResult({
+      added,
+      skipped,
+      errors: result.errors,
+    });
+
+    refreshStudents();
+    setIsImporting(false);
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  if (!mounted) {
+    return <div className="animate-pulse"><div className="h-8 bg-gray-200 rounded w-48"></div></div>;
+  }
+
   if (!currentClass) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -117,22 +176,64 @@ export default function StudentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Students</h1>
-          <p className="text-gray-600">{currentClass.name} • {currentClass.period}</p>
+          <p className="text-gray-600">{currentClass.name} • {currentClass.schedule}</p>
         </div>
-        <button onClick={() => setShowAddStudent(true)} className="btn btn-primary">
-          <PlusIcon className="w-5 h-5" />
-          Add Student
-        </button>
+        <div className="flex gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileImport}
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="btn btn-secondary"
+          >
+            <ArrowUpTrayIcon className="w-5 h-5" />
+            {isImporting ? 'Importing...' : 'Import from File'}
+          </button>
+          <button onClick={() => setShowAddStudent(true)} className="btn btn-primary">
+            <PlusIcon className="w-5 h-5" />
+            Add Student
+          </button>
+        </div>
       </div>
+
+      {/* Import Result */}
+      {importResult && (
+        <div className="card bg-blue-50 border-blue-200">
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="font-semibold text-blue-900">Import Complete</h3>
+              <p className="text-blue-800 mt-1">
+                Added {importResult.added} new student{importResult.added !== 1 ? 's' : ''}
+                {importResult.skipped > 0 && `, skipped ${importResult.skipped} (already exist)`}
+              </p>
+              {importResult.errors.length > 0 && (
+                <div className="mt-2 text-red-700">
+                  <p className="font-medium">Errors:</p>
+                  <ul className="list-disc list-inside text-sm">
+                    {importResult.errors.map((err, i) => <li key={i}>{err}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <button onClick={() => setImportResult(null)} className="text-blue-600 hover:text-blue-800">
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Students Table */}
       {students.length === 0 ? (
         <div className="card text-center py-12">
-          <p className="text-gray-500 mb-4">No students in this class yet</p>
-          <button onClick={() => setShowAddStudent(true)} className="btn btn-accent">
-            <PlusIcon className="w-5 h-5" />
-            Add First Student
-          </button>
+          <p className="text-gray-500">No students in this class yet</p>
+          <p className="text-sm text-gray-400 mt-2">
+            Use the buttons above to add students or import from an attendance file
+          </p>
         </div>
       ) : (
         <div className="card p-0 overflow-hidden">
@@ -345,7 +446,7 @@ export default function StudentsPage() {
                   className="w-full p-3 text-left rounded-lg border hover:bg-[var(--cace-gray)] hover:border-[var(--cace-teal)] transition-colors"
                 >
                   <span className="font-medium">{cls.name}</span>
-                  <span className="text-gray-500 ml-2">({cls.period})</span>
+                  <span className="text-gray-500 ml-2">({cls.schedule})</span>
                 </button>
               ))}
             </div>

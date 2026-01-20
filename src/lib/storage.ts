@@ -8,6 +8,8 @@ import {
   ArchivedYear,
   RankingWeights,
   ColorThresholds,
+  CACELevel,
+  CACE_LEVELS,
 } from '@/types';
 
 // ============================================
@@ -66,27 +68,82 @@ export const DEFAULT_COLOR_THRESHOLDS: ColorThresholds = {
 };
 
 // ============================================
+// Academic Year Helpers
+// ============================================
+
+export function getCurrentAcademicYear(): string {
+  const now = new Date();
+  // If we're in Aug-Dec (month >= 7), use current year as start
+  // If Jan-Jul (month < 7), use previous year as start
+  const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${startYear}-${startYear + 1}`;
+}
+
+export function getAcademicYearOptions(): string[] {
+  const classes = getClasses();
+  const yearsSet = new Set<string>();
+  
+  // Add current year (always available)
+  yearsSet.add(getCurrentAcademicYear());
+  
+  // Add years from existing classes
+  classes.forEach(cls => {
+    if (cls.academicYear) {
+      yearsSet.add(cls.academicYear);
+    }
+  });
+  
+  // Convert to array and sort descending (newest first)
+  return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+}
+
+// ============================================
 // Classes
 // ============================================
 
 export function getClasses(): Class[] {
-  return getFromStorage<Class[]>(STORAGE_KEYS.classes, []);
+  const classes = getFromStorage<Class[]>(STORAGE_KEYS.classes, []);
+  
+  // Migration: assign academicYear to classes that don't have one
+  let needsSave = false;
+  classes.forEach(cls => {
+    if (!cls.academicYear) {
+      cls.academicYear = getCurrentAcademicYear();
+      needsSave = true;
+    }
+  });
+  if (needsSave) {
+    saveToStorage(STORAGE_KEYS.classes, classes);
+  }
+  
+  return classes;
+}
+
+export function getClassesByYear(academicYear: string): Class[] {
+  return getClasses().filter(cls => cls.academicYear === academicYear);
 }
 
 export function saveClasses(classes: Class[]): void {
   saveToStorage(STORAGE_KEYS.classes, classes);
 }
 
-export function createClass(name: string, period: string): Class {
+export function createClass(name: string, schedule: string, level: CACELevel = 3): Class {
+  // Calculate CASAS targets based on level
+  // Target is to reach the NEXT level
+  const currentLevel = CACE_LEVELS[level];
+  const nextLevel = level < 5 ? CACE_LEVELS[(level + 1) as CACELevel] : currentLevel;
+  
   const newClass: Class = {
     id: generateId(),
     name,
-    period,
-    // Default Level 3 → Level 4 targets
-    casasReadingLevelStart: 207,
-    casasReadingTarget: 217,
-    casasListeningLevelStart: 202,
-    casasListeningTarget: 212,
+    academicYear: getCurrentAcademicYear(),
+    schedule,
+    level,
+    // Level start is bottom of current range, target is bottom of next range
+    casasReadingLevelStart: currentLevel.readingRange[0],
+    casasReadingTarget: level < 5 ? nextLevel.readingRange[0] : currentLevel.readingRange[1],
+    casasListeningLevelStart: currentLevel.listeningRange[0],
+    casasListeningTarget: level < 5 ? nextLevel.listeningRange[0] : currentLevel.listeningRange[1],
     rankingWeights: { ...DEFAULT_RANKING_WEIGHTS },
     colorThresholds: { ...DEFAULT_COLOR_THRESHOLDS },
     createdAt: new Date().toISOString(),

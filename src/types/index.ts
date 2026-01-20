@@ -2,12 +2,30 @@
 // ESL Gradebook Types
 // ============================================
 
-// Class (Morning, Night, etc.)
+// CACE Levels with CASAS score ranges
+export type CACELevel = 0 | 1 | 2 | 3 | 4 | 5;
+
+export const CACE_LEVELS: Record<CACELevel, {
+  name: string;
+  readingRange: [number, number];
+  listeningRange: [number, number];
+}> = {
+  0: { name: '0 - Literacy', readingRange: [0, 183], listeningRange: [0, 181] },
+  1: { name: '1 - Beginning Low', readingRange: [184, 196], listeningRange: [182, 191] },
+  2: { name: '2 - Beginning High', readingRange: [197, 206], listeningRange: [192, 201] },
+  3: { name: '3 - Intermediate Low', readingRange: [207, 216], listeningRange: [202, 211] },
+  4: { name: '4 - Intermediate High', readingRange: [217, 227], listeningRange: [212, 221] },
+  5: { name: '5 - Advanced', readingRange: [228, 238], listeningRange: [222, 231] },
+};
+
+// Class (Morning, Evening, etc.)
 export interface Class {
   id: string;
   name: string;
-  period: string; // "Morning" | "Night" | etc.
-  // CASAS Level Configuration (per class)
+  academicYear: string; // e.g., "2025-2026"
+  schedule: string; // "Morning" | "Evening"
+  level: CACELevel; // CACE Level (0-5)
+  // CASAS Level Configuration (auto-set based on level)
   casasReadingLevelStart: number;  // e.g., 207 for Level 3
   casasReadingTarget: number;       // e.g., 217 for Level 4
   casasListeningLevelStart: number; // e.g., 202 for Level 3
