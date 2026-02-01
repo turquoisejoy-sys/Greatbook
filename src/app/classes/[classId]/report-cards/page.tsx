@@ -218,7 +218,10 @@ export default function ReportCardsPage() {
     rank: viewingPastCard.rank,
     totalStudents: viewingPastCard.totalStudents,
     isComplete: viewingPastCard.rank !== null,
-  } : selectedStudent;
+  } : selectedStudent ? {
+    ...selectedStudent,
+    totalStudents: studentsWithRanks.length,
+  } : null;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
