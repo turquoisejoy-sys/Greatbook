@@ -45,6 +45,11 @@ export default function StudentsPage() {
   const [editEnrollment, setEditEnrollment] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [importEnrollmentDate, setImportEnrollmentDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
   const [importResult, setImportResult] = useState<{
     added: number;
     skipped: number;
@@ -108,14 +113,28 @@ export default function StudentsPage() {
     setShowEditStudent(student);
   };
 
-  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Store the file and show the modal
+    setPendingFile(file);
+    setImportEnrollmentDate(new Date().toISOString().split('T')[0]);
+    setShowImportModal(true);
+
+    // Reset file input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const processImport = async () => {
+    if (!pendingFile) return;
 
     setIsImporting(true);
     setImportResult(null);
 
-    const result = await parseAttendanceFileFromInput(file);
+    const result = await parseAttendanceFileFromInput(pendingFile);
     
     let added = 0;
     let skipped = 0;
@@ -132,7 +151,7 @@ export default function StudentsPage() {
       if (existing) {
         skipped++;
       } else {
-        createStudent(normalizedName, classId);
+        createStudent(normalizedName, classId, importEnrollmentDate);
         added++;
       }
     }
@@ -145,11 +164,13 @@ export default function StudentsPage() {
 
     refreshStudents();
     setIsImporting(false);
+    setShowImportModal(false);
+    setPendingFile(null);
+  };
 
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+  const cancelImport = () => {
+    setShowImportModal(false);
+    setPendingFile(null);
   };
 
   if (!mounted) {
@@ -179,21 +200,20 @@ export default function StudentsPage() {
           <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Students</h1>
           <p className="text-gray-600">{currentClass.name} • {currentClass.schedule}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <input
             type="file"
             ref={fileInputRef}
-            onChange={handleFileImport}
+            onChange={handleFileSelect}
             accept=".xlsx,.xls,.csv"
             className="hidden"
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting}
             className="btn btn-secondary"
           >
             <ArrowUpTrayIcon className="w-5 h-5" />
-            {isImporting ? 'Importing...' : 'Import from File'}
+            Import from File
           </button>
           <button onClick={() => setShowAddStudent(true)} className="btn btn-primary">
             <PlusIcon className="w-5 h-5" />
@@ -457,6 +477,55 @@ export default function StudentsPage() {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Import Students Modal */}
+      {showImportModal && pendingFile && (
+        <div className="modal-overlay" onClick={cancelImport}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Import Students</h2>
+              <button
+                onClick={cancelImport}
+                className="p-1 hover:bg-gray-100 rounded"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Selected file:</p>
+                <p className="font-medium text-gray-900">{pendingFile.name}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Enrollment Date for New Students
+                </label>
+                <input
+                  type="date"
+                  value={importEnrollmentDate}
+                  onChange={e => setImportEnrollmentDate(e.target.value)}
+                  className="input"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This date will be set as the enrollment date for all imported students
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={cancelImport} className="btn btn-secondary flex-1">
+                Cancel
+              </button>
+              <button
+                onClick={processImport}
+                disabled={isImporting}
+                className="btn btn-primary flex-1 disabled:opacity-50"
+              >
+                {isImporting ? 'Importing...' : 'Import Students'}
+              </button>
+            </div>
           </div>
         </div>
       )}
