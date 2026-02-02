@@ -27,6 +27,18 @@ export function calculateCASASAverage(tests: CASASTest[]): number | null {
 }
 
 /**
+ * Get most recent CASAS score (by date, only valid scores)
+ */
+export function getMostRecentCASASScore(tests: CASASTest[]): number | null {
+  const validTests = tests.filter(t => t.score !== null);
+  if (validTests.length === 0) return null;
+  
+  // Sort by date descending (most recent first)
+  const sorted = [...validTests].sort((a, b) => b.date.localeCompare(a.date));
+  return sorted[0].score;
+}
+
+/**
  * Calculate progress percentage toward Level 4
  * Formula: (Average Score - Level Start) / (Target - Level Start) * 100
  */
@@ -143,17 +155,20 @@ export function getStudentStats(
   );
 
   const casasReadingAvg = calculateCASASAverage(enrolledReading);
+  const casasReadingLast = getMostRecentCASASScore(enrolledReading);
   const casasListeningAvg = calculateCASASAverage(enrolledListening);
+  const casasListeningLast = getMostRecentCASASScore(enrolledListening);
   const testAverage = calculateTestAverage(enrolledTests);
   const attendanceAverage = calculateAttendanceAverage(enrolledAttendance);
 
+  // Use most recent score for progress calculation (determines level readiness)
   const casasReadingProgress = calculateCASASProgress(
-    casasReadingAvg,
+    casasReadingLast,
     classData.casasReadingLevelStart,
     classData.casasReadingTarget
   );
   const casasListeningProgress = calculateCASASProgress(
-    casasListeningAvg,
+    casasListeningLast,
     classData.casasListeningLevelStart,
     classData.casasListeningTarget
   );
@@ -179,8 +194,10 @@ export function getStudentStats(
   return {
     ...student,
     casasReadingAvg,
+    casasReadingLast,
     casasReadingProgress,
     casasListeningAvg,
+    casasListeningLast,
     casasListeningProgress,
     testAverage,
     attendanceAverage,

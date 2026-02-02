@@ -11,6 +11,7 @@ import {
   updateUnitTest,
   deleteUnitTest,
   findOrCreateStudent,
+  findStudentByName,
 } from '@/lib/storage';
 import { parseTestsFileFromInput } from '@/lib/parsers';
 import { calculateTestAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
@@ -60,6 +61,8 @@ export default function UnitTestsPage() {
     added: number;
     testsImported?: string[];
     errors: string[];
+    unmatchedFromImport: string[];
+    studentsWithoutScores: string[];
   } | null>(null);
   const [lastImportIds, setLastImportIds] = useState<string[]>([]);
 
@@ -278,20 +281,33 @@ export default function UnitTestsPage() {
     const result = await parseTestsFileFromInput(file);
     
     if (result.errors.length > 0 && result.summary.totalRecords === 0) {
-      setImportResult({ added: 0, errors: result.errors });
+      setImportResult({ added: 0, errors: result.errors, unmatchedFromImport: [], studentsWithoutScores: [] });
       setIsImporting(false);
       return;
     }
+
+    // Get all existing students in this class
+    const existingStudents = getStudentsByClass(classId);
 
     if (result.isMultiTest) {
       // Multi-test format - import directly
       let added = 0;
       const importedIds: string[] = [];
       const testsImported = new Set<string>();
+      const unmatchedFromImport: string[] = [];
+      const studentsWhoGotScores = new Set<string>();
 
       for (const record of result.multiTestRecords) {
-        const student = findOrCreateStudent(record.studentName, classId);
-        const test = addUnitTest(student.id, record.testName, record.date, record.score);
+        // Only match existing students - don't create new ones
+        const existingStudent = findStudentByName(record.studentName, classId);
+        
+        if (!existingStudent) {
+          unmatchedFromImport.push(record.studentName);
+          continue;
+        }
+        
+        studentsWhoGotScores.add(existingStudent.id);
+        const test = addUnitTest(existingStudent.id, record.testName, record.date, record.score);
         if (test) {
           added++;
           importedIds.push(test.id);
@@ -299,11 +315,18 @@ export default function UnitTestsPage() {
         }
       }
 
+      // Find students who didn't get any score from this import
+      const studentsWithoutScores = existingStudents
+        .filter(s => !studentsWhoGotScores.has(s.id))
+        .map(s => s.name);
+
       setLastImportIds(importedIds);
       setImportResult({
         added,
         testsImported: Array.from(testsImported),
         errors: result.errors,
+        unmatchedFromImport: [...new Set(unmatchedFromImport)],
+        studentsWithoutScores,
       });
       refreshData();
       setIsImporting(false);
@@ -323,21 +346,41 @@ export default function UnitTestsPage() {
     
     let added = 0;
     const importedIds: string[] = [];
+    const unmatchedFromImport: string[] = [];
+    const studentsWhoGotScores = new Set<string>();
+    
+    // Get all existing students in this class
+    const existingStudents = getStudentsByClass(classId);
 
     for (const record of result.records) {
-      const student = findOrCreateStudent(record.studentName, classId);
-      const test = addUnitTest(student.id, importTestName.trim(), importTestDate, record.score);
+      // Only match existing students - don't create new ones
+      const existingStudent = findStudentByName(record.studentName, classId);
+      
+      if (!existingStudent) {
+        unmatchedFromImport.push(record.studentName);
+        continue;
+      }
+      
+      studentsWhoGotScores.add(existingStudent.id);
+      const test = addUnitTest(existingStudent.id, importTestName.trim(), importTestDate, record.score);
       if (test) {
         added++;
         importedIds.push(test.id);
       }
     }
 
+    // Find students who didn't get a score from this import
+    const studentsWithoutScores = existingStudents
+      .filter(s => !studentsWhoGotScores.has(s.id))
+      .map(s => s.name);
+
     setLastImportIds(importedIds);
     setImportResult({
       added,
       testsImported: [importTestName.trim()],
       errors: result.errors,
+      unmatchedFromImport: [...new Set(unmatchedFromImport)],
+      studentsWithoutScores,
     });
 
     refreshData();
@@ -509,7 +552,7 @@ export default function UnitTestsPage() {
       {importResult && (
         <div className="card bg-blue-50 border-blue-200">
           <div className="flex items-start justify-between">
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-blue-900">Import Complete</h3>
               <p className="text-blue-800 mt-1">
                 Added {importResult.added} test scores
@@ -519,6 +562,29 @@ export default function UnitTestsPage() {
                   </span>
                 )}
               </p>
+              {importResult.unmatchedFromImport.length > 0 && (
+                <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <p className="text-orange-800 font-medium text-sm">
+                    ⚠️ {importResult.unmatchedFromImport.length} name(s) from import not found in class:
+                  </p>
+                  <ul className="mt-1 text-orange-700 text-sm list-disc list-inside max-h-32 overflow-y-auto">
+                    {importResult.unmatchedFromImport.map((name, i) => <li key={i}>{name}</li>)}
+                  </ul>
+                  <p className="mt-2 text-orange-600 text-xs">
+                    These scores were skipped. Check for spelling differences.
+                  </p>
+                </div>
+              )}
+              {importResult.studentsWithoutScores.length > 0 && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-yellow-800 font-medium text-sm">
+                    📋 {importResult.studentsWithoutScores.length} student(s) in class didn't get a score:
+                  </p>
+                  <ul className="mt-1 text-yellow-700 text-sm list-disc list-inside max-h-32 overflow-y-auto">
+                    {importResult.studentsWithoutScores.map((name, i) => <li key={i}>{name}</li>)}
+                  </ul>
+                </div>
+              )}
               {importResult.errors.length > 0 && (
                 <div className="mt-2 text-red-700">
                   <ul className="list-disc list-inside text-sm">

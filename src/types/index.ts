@@ -111,10 +111,12 @@ export interface ReportCard {
   attendanceAverage: number | null;
   rank: number | null;        // null if "Incomplete"
   totalStudents: number;
-  // Teacher comments
-  speakingSkills: string;
-  writingSkills: string;
-  suggestionsForImprovement: string;
+  // Teacher comments (new single field)
+  teacherComments?: string;
+  // Legacy fields (kept for backward compatibility with old saved report cards)
+  speakingSkills?: string;
+  writingSkills?: string;
+  suggestionsForImprovement?: string;
 }
 
 // Archived Year
@@ -138,8 +140,10 @@ export interface ArchivedYear {
 
 export interface StudentWithStats extends Student {
   casasReadingAvg: number | null;
+  casasReadingLast: number | null;  // Most recent score
   casasReadingProgress: number | null;
   casasListeningAvg: number | null;
+  casasListeningLast: number | null;  // Most recent score
   casasListeningProgress: number | null;
   testAverage: number | null;
   attendanceAverage: number | null;

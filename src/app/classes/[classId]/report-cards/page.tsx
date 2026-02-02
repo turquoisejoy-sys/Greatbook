@@ -28,6 +28,98 @@ import {
   TrophyIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  ReferenceLine,
+} from 'recharts';
+
+// CASAS Line Chart Component
+function CASASLineChart({ 
+  tests, 
+  target, 
+  levelStart,
+  color = '#3B9B8E' 
+}: { 
+  tests: CASASTest[]; 
+  target: number;
+  levelStart: number;
+  color?: string;
+}) {
+  // Sort tests by date and filter valid scores
+  const sortedTests = [...tests]
+    .filter(t => t.score !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (sortedTests.length === 0) {
+    return (
+      <div className="h-[100px] flex items-center justify-center bg-gray-50 rounded text-gray-400 text-sm">
+        No test data
+      </div>
+    );
+  }
+
+  // Prepare data for chart - include score in label for print
+  const data = sortedTests.map(test => {
+    const date = new Date(test.date + 'T00:00:00');
+    const label = `${date.getMonth() + 1}/${date.getDate()}-${test.formNumber}: ${test.score}`;
+    return {
+      label,
+      score: test.score,
+    };
+  });
+
+  // Calculate Y-axis domain with some padding
+  const scores = sortedTests.map(t => t.score as number);
+  const minScore = Math.min(...scores, levelStart);
+  const maxScore = Math.max(...scores, target);
+  const padding = Math.ceil((maxScore - minScore) * 0.1) || 5;
+  const yMin = Math.floor(minScore - padding);
+  const yMax = Math.ceil(maxScore + padding);
+
+  return (
+    <div className="chart-container" style={{ width: '100%', height: 100 }}>
+      <LineChart 
+        data={data} 
+        width={320} 
+        height={100} 
+        margin={{ top: 5, right: 10, bottom: 5, left: 0 }}
+        style={{ maxWidth: '100%' }}
+      >
+        <XAxis 
+          dataKey="label" 
+          tick={{ fontSize: 8 }} 
+          tickLine={false}
+          axisLine={{ stroke: '#e5e7eb' }}
+          interval={0}
+        />
+        <YAxis 
+          domain={[yMin, yMax]} 
+          tick={{ fontSize: 9 }} 
+          tickLine={false}
+          axisLine={{ stroke: '#e5e7eb' }}
+          width={30}
+        />
+        <ReferenceLine 
+          y={target} 
+          stroke="#22c55e" 
+          strokeDasharray="4 4" 
+          label={{ value: 'Target', fontSize: 9, fill: '#22c55e', position: 'right' }}
+        />
+        <Line 
+          type="monotone" 
+          dataKey="score" 
+          stroke={color} 
+          strokeWidth={2}
+          dot={{ fill: color, strokeWidth: 0, r: 3 }}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </div>
+  );
+}
 
 export default function ReportCardsPage() {
   const params = useParams();
@@ -52,9 +144,7 @@ export default function ReportCardsPage() {
     if (month >= 0 && month <= 4) return `Spring ${year}`;
     return `Summer ${year}`;
   });
-  const [speakingSkills, setSpeakingSkills] = useState('');
-  const [writingSkills, setWritingSkills] = useState('');
-  const [suggestions, setSuggestions] = useState('');
+  const [teacherComments, setTeacherComments] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
@@ -95,26 +185,30 @@ export default function ReportCardsPage() {
       
       // Reset form
       setViewingPastCard(null);
-      setSpeakingSkills('');
-      setWritingSkills('');
-      setSuggestions('');
+      setTeacherComments('');
       setSaveMessage('');
     }
   }, [selectedStudentId, currentClass, studentsWithRanks]);
 
   const handleViewPastCard = (card: ReportCard) => {
     setViewingPastCard(card);
-    setSpeakingSkills(card.speakingSkills);
-    setWritingSkills(card.writingSkills);
-    setSuggestions(card.suggestionsForImprovement);
+    // Use new field if available, otherwise combine legacy fields
+    if (card.teacherComments) {
+      setTeacherComments(card.teacherComments);
+    } else {
+      // Combine legacy fields for backward compatibility
+      const parts = [];
+      if (card.speakingSkills) parts.push(`Speaking: ${card.speakingSkills}`);
+      if (card.writingSkills) parts.push(`Writing: ${card.writingSkills}`);
+      if (card.suggestionsForImprovement) parts.push(`Suggestions: ${card.suggestionsForImprovement}`);
+      setTeacherComments(parts.join('\n\n'));
+    }
     setPeriodName(card.periodName);
   };
 
   const handleNewCard = () => {
     setViewingPastCard(null);
-    setSpeakingSkills('');
-    setWritingSkills('');
-    setSuggestions('');
+    setTeacherComments('');
     const now = new Date();
     const month = now.getMonth();
     const year = now.getFullYear();
@@ -133,9 +227,7 @@ export default function ReportCardsPage() {
       // Update existing
       updateReportCard(viewingPastCard.id, {
         periodName,
-        speakingSkills,
-        writingSkills,
-        suggestionsForImprovement: suggestions,
+        teacherComments,
       });
       setSaveMessage('Report card updated!');
     } else {
@@ -151,9 +243,7 @@ export default function ReportCardsPage() {
         attendanceAverage: selectedStudent.attendanceAverage,
         rank: selectedStudent.rank,
         totalStudents,
-        speakingSkills,
-        writingSkills,
-        suggestionsForImprovement: suggestions,
+        teacherComments,
       });
       setSaveMessage('Report card saved!');
     }
@@ -211,8 +301,10 @@ export default function ReportCardsPage() {
   const displayData = viewingPastCard ? {
     casasReadingProgress: viewingPastCard.casasReadingProgress,
     casasReadingAvg: viewingPastCard.casasReadingAvg,
+    casasReadingLast: viewingPastCard.casasReadingAvg, // Past cards stored avg, show as last
     casasListeningProgress: viewingPastCard.casasListeningProgress,
     casasListeningAvg: viewingPastCard.casasListeningAvg,
+    casasListeningLast: viewingPastCard.casasListeningAvg, // Past cards stored avg, show as last
     testAverage: viewingPastCard.testAverage,
     attendanceAverage: viewingPastCard.attendanceAverage,
     rank: viewingPastCard.rank,
@@ -346,6 +438,7 @@ export default function ReportCardsPage() {
                     <TrophyIcon className="w-6 h-6 text-yellow-500" />
                   )}
                   <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Class Rank</p>
                     <p className="text-2xl font-bold text-[var(--cace-navy)]">
                       #{displayData.rank}
                     </p>
@@ -360,54 +453,57 @@ export default function ReportCardsPage() {
             </div>
           </div>
 
-          {/* Overall Performance */}
-          <div className="mb-6">
-            <h4 className="font-semibold text-[var(--cace-navy)] mb-3">Overall Performance</h4>
-            <div className="grid grid-cols-2 gap-4">
-              {/* CASAS Reading */}
+          {/* CASAS Progress - Line Charts */}
+          <div className="mb-6 casas-charts-section">
+            <h4 className="font-semibold text-[var(--cace-navy)] mb-3">CASAS Progress</h4>
+            <div className="grid grid-cols-2 gap-6 print:gap-8">
+              {/* CASAS Reading Chart */}
               <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>CASAS Reading</span>
-                  <span className="font-medium">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="font-medium">Reading</span>
+                  <span className={`font-medium ${displayData.casasReadingProgress !== null && displayData.casasReadingProgress >= 100 ? 'text-green-600' : ''}`}>
                     {displayData.casasReadingProgress !== null 
                       ? (displayData.casasReadingProgress >= 100 ? 'GOAL!' : `${displayData.casasReadingProgress.toFixed(0)}%`)
                       : '—'}
                   </span>
                 </div>
-                <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full ${getProgressColor(displayData.casasReadingProgress)} transition-all`}
-                    style={{ width: `${Math.min(displayData.casasReadingProgress || 0, 100)}%` }}
-                  ></div>
-                </div>
+                <CASASLineChart 
+                  tests={readingTests} 
+                  target={currentClass.casasReadingTarget}
+                  levelStart={currentClass.casasReadingLevelStart}
+                  color="#3B9B8E"
+                />
                 <p className="text-xs text-gray-500 mt-1">
-                  Avg: {displayData.casasReadingAvg?.toFixed(0) || '—'} 
-                  (Target: {currentClass.casasReadingTarget})
+                  Last: {displayData.casasReadingLast?.toFixed(0) || '—'} | Target: {currentClass.casasReadingTarget}
                 </p>
               </div>
 
-              {/* CASAS Listening */}
+              {/* CASAS Listening Chart */}
               <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>CASAS Listening</span>
-                  <span className="font-medium">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="font-medium">Listening</span>
+                  <span className={`font-medium ${displayData.casasListeningProgress !== null && displayData.casasListeningProgress >= 100 ? 'text-green-600' : ''}`}>
                     {displayData.casasListeningProgress !== null 
                       ? (displayData.casasListeningProgress >= 100 ? 'GOAL!' : `${displayData.casasListeningProgress.toFixed(0)}%`)
                       : '—'}
                   </span>
                 </div>
-                <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full ${getProgressColor(displayData.casasListeningProgress)} transition-all`}
-                    style={{ width: `${Math.min(displayData.casasListeningProgress || 0, 100)}%` }}
-                  ></div>
-                </div>
+                <CASASLineChart 
+                  tests={listeningTests} 
+                  target={currentClass.casasListeningTarget}
+                  levelStart={currentClass.casasListeningLevelStart}
+                  color="#1E3A5F"
+                />
                 <p className="text-xs text-gray-500 mt-1">
-                  Avg: {displayData.casasListeningAvg?.toFixed(0) || '—'}
-                  (Target: {currentClass.casasListeningTarget})
+                  Last: {displayData.casasListeningLast?.toFixed(0) || '—'} | Target: {currentClass.casasListeningTarget}
                 </p>
               </div>
+            </div>
+          </div>
 
+          {/* Unit Tests & Attendance - Progress Bars */}
+          <div className="mb-6">
+            <div className="grid grid-cols-2 gap-4">
               {/* Test Average */}
               <div>
                 <div className="flex justify-between text-sm mb-1">
@@ -451,58 +547,7 @@ export default function ReportCardsPage() {
           {/* Detailed Scores - Only show for new cards, not past snapshots */}
           {!viewingPastCard && (
             <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
-              {/* CASAS Tests */}
-              <div>
-                <h4 className="font-semibold text-[var(--cace-navy)] mb-2">CASAS Reading Tests</h4>
-                {readingTests.length === 0 ? (
-                  <p className="text-gray-400 text-xs">No tests recorded</p>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-1">Date</th>
-                        <th className="text-left py-1">Form</th>
-                        <th className="text-right py-1">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {readingTests.slice(0, 5).map(test => (
-                        <tr key={test.id} className="border-b border-gray-100">
-                          <td className="py-1">{new Date(test.date + 'T00:00:00').toLocaleDateString()}</td>
-                          <td className="py-1">{test.formNumber}</td>
-                          <td className="py-1 text-right">{test.score ?? '*'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-
-                <h4 className="font-semibold text-[var(--cace-navy)] mb-2 mt-4">CASAS Listening Tests</h4>
-                {listeningTests.length === 0 ? (
-                  <p className="text-gray-400 text-xs">No tests recorded</p>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-1">Date</th>
-                        <th className="text-left py-1">Form</th>
-                        <th className="text-right py-1">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {listeningTests.slice(0, 5).map(test => (
-                        <tr key={test.id} className="border-b border-gray-100">
-                          <td className="py-1">{new Date(test.date + 'T00:00:00').toLocaleDateString()}</td>
-                          <td className="py-1">{test.formNumber}</td>
-                          <td className="py-1 text-right">{test.score ?? '*'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* Unit Tests & Attendance */}
+              {/* Unit Tests */}
               <div>
                 <h4 className="font-semibold text-[var(--cace-navy)] mb-2">Unit Tests</h4>
                 {unitTests.length === 0 ? (
@@ -516,7 +561,7 @@ export default function ReportCardsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {unitTests.slice(0, 6).map(test => (
+                      {unitTests.slice(0, 8).map(test => (
                         <tr key={test.id} className="border-b border-gray-100">
                           <td className="py-1">{test.testName}</td>
                           <td className="py-1 text-right">{test.score}%</td>
@@ -525,18 +570,31 @@ export default function ReportCardsPage() {
                     </tbody>
                   </table>
                 )}
+              </div>
 
-                <h4 className="font-semibold text-[var(--cace-navy)] mb-2 mt-4">Monthly Attendance</h4>
-                {attendance.filter(a => !a.isVacation).length === 0 ? (
+              {/* Monthly Attendance */}
+              <div>
+                <h4 className="font-semibold text-[var(--cace-navy)] mb-2">Monthly Attendance</h4>
+                {attendance.length === 0 ? (
                   <p className="text-gray-400 text-xs">No attendance recorded</p>
                 ) : (
-                  <div className="grid grid-cols-3 gap-1 text-xs">
-                    {attendance.filter(a => !a.isVacation).slice(0, 9).map(a => (
-                      <div key={a.id} className="flex justify-between px-1 py-0.5 bg-gray-50 rounded">
-                        <span>{a.month.substring(5)}/{a.month.substring(2, 4)}</span>
-                        <span>{a.percentage.toFixed(0)}%</span>
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    {attendance.slice(0, 12).map(a => {
+                      // Parse month from YYYY-MM format
+                      const monthNum = a.month.split('-')[1];
+                      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                      const monthName = monthNames[parseInt(monthNum, 10) - 1] || monthNum;
+                      
+                      return (
+                        <div key={a.id} className="flex justify-between px-2 py-1 bg-gray-50 rounded">
+                          <span className="font-medium">{monthName}</span>
+                          <span className={a.isVacation ? 'text-gray-400 italic' : ''}>
+                            {a.isVacation ? 'Out' : `${a.percentage.toFixed(0)}%`}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -545,45 +603,14 @@ export default function ReportCardsPage() {
 
           {/* Teacher Comments */}
           <div className="border-t pt-4">
-            <h4 className="font-semibold text-[var(--cace-navy)] mb-3">Teacher Comments</h4>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Speaking Skills
-                </label>
-                <textarea
-                  value={speakingSkills}
-                  onChange={(e) => setSpeakingSkills(e.target.value)}
-                  className="input text-sm print:border-none print:p-0 print:resize-none"
-                  rows={2}
-                  placeholder="Comments on speaking abilities..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Writing Skills
-                </label>
-                <textarea
-                  value={writingSkills}
-                  onChange={(e) => setWritingSkills(e.target.value)}
-                  className="input text-sm print:border-none print:p-0 print:resize-none"
-                  rows={2}
-                  placeholder="Comments on writing abilities..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Suggestions for Improvement
-                </label>
-                <textarea
-                  value={suggestions}
-                  onChange={(e) => setSuggestions(e.target.value)}
-                  className="input text-sm print:border-none print:p-0 print:resize-none"
-                  rows={2}
-                  placeholder="Areas to focus on..."
-                />
-              </div>
-            </div>
+            <h4 className="font-semibold text-[var(--cace-navy)] mb-2">Teacher Comments</h4>
+            <textarea
+              value={teacherComments}
+              onChange={(e) => setTeacherComments(e.target.value)}
+              className="input text-sm print:border-none print:p-0 print:resize-none w-full"
+              rows={4}
+              placeholder="Comments on student progress, speaking/writing skills, areas for improvement..."
+            />
           </div>
 
           {/* Footer */}
@@ -634,6 +661,27 @@ export default function ReportCardsPage() {
           }
           .print\\:hidden {
             display: none !important;
+          }
+          /* Fix chart layout for print */
+          .casas-charts-section {
+            page-break-inside: avoid;
+          }
+          .chart-container {
+            overflow: visible !important;
+          }
+          .chart-container svg {
+            overflow: visible !important;
+          }
+          /* Force background colors to print */
+          .bg-gray-200, .bg-green-500, .bg-green-400, .bg-yellow-400, .bg-red-400 {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+          /* Progress bar containers */
+          .rounded-full {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
       `}</style>

@@ -11,6 +11,7 @@ import {
   updateCASASTest,
   deleteCASASTest,
   findOrCreateStudent,
+  findStudentByName,
 } from '@/lib/storage';
 import { parseCASASFileFromInput } from '@/lib/parsers';
 import { calculateCASASAverage, calculateCASASProgress, getColorLevel, compareByLastName } from '@/lib/calculations';
@@ -47,8 +48,11 @@ export default function CASASListeningPage() {
   const [showImportResult, setShowImportResult] = useState<{
     added: number;
     skipped: number;
+    duplicatesSkipped: number;
     errors: string[];
     warnings: string[];
+    unmatchedFromImport: string[];
+    studentsWithoutScores: string[];
   } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [lastImportIds, setLastImportIds] = useState<string[]>([]);
@@ -188,21 +192,50 @@ export default function CASASListeningPage() {
     
     let added = 0;
     let skipped = 0;
+    let duplicatesSkipped = 0;
     const importedIds: string[] = [];
+    const unmatchedFromImport: string[] = [];
+    const studentsWhoGotScores = new Set<string>();
+    
+    // Get all existing students in this class
+    const existingStudents = getStudentsByClass(classId);
 
     for (const row of result.listening) {
-      const student = findOrCreateStudent(row.studentName, classId);
-      const test = addCASASTest(student.id, 'listening', row.date, row.formNumber, row.score);
+      // Only match existing students - don't create new ones
+      const existingStudent = findStudentByName(row.studentName, classId);
+      
+      if (!existingStudent) {
+        unmatchedFromImport.push(row.studentName);
+        skipped++;
+        continue;
+      }
+      
+      studentsWhoGotScores.add(existingStudent.id);
+      const test = addCASASTest(existingStudent.id, 'listening', row.date, row.formNumber, row.score);
       if (test) {
         added++;
         importedIds.push(test.id);
       } else {
-        skipped++;
+        // addCASASTest returns null for duplicates
+        duplicatesSkipped++;
       }
     }
 
+    // Find students who didn't get a score from this import
+    const studentsWithoutScores = existingStudents
+      .filter(s => !studentsWhoGotScores.has(s.id))
+      .map(s => s.name);
+
     setLastImportIds(importedIds);
-    setShowImportResult({ added, skipped, errors: result.errors, warnings: result.warnings });
+    setShowImportResult({ 
+      added, 
+      skipped, 
+      duplicatesSkipped,
+      errors: result.errors, 
+      warnings: result.warnings,
+      unmatchedFromImport: [...new Set(unmatchedFromImport)],
+      studentsWithoutScores,
+    });
     refreshData(currentClass);
     setIsImporting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -289,12 +322,38 @@ export default function CASASListeningPage() {
       {showImportResult && (
         <div className="card bg-blue-50 border-blue-200">
           <div className="flex items-start justify-between">
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-blue-900">Import Complete</h3>
               <p className="text-blue-800 mt-1">
                 Added {showImportResult.added} listening scores
-                {showImportResult.skipped > 0 && `, skipped ${showImportResult.skipped} duplicates`}
+                {showImportResult.duplicatesSkipped > 0 && (
+                  <span className="text-gray-500"> • {showImportResult.duplicatesSkipped} duplicate(s) skipped</span>
+                )}
+                {showImportResult.skipped > 0 && `, skipped ${showImportResult.skipped} unmatched`}
               </p>
+              {showImportResult.unmatchedFromImport.length > 0 && (
+                <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <p className="text-orange-800 font-medium text-sm">
+                    ⚠️ {showImportResult.unmatchedFromImport.length} name(s) from import not found in class:
+                  </p>
+                  <ul className="mt-1 text-orange-700 text-sm list-disc list-inside max-h-32 overflow-y-auto">
+                    {showImportResult.unmatchedFromImport.map((name, i) => <li key={i}>{name}</li>)}
+                  </ul>
+                  <p className="mt-2 text-orange-600 text-xs">
+                    These scores were skipped. Check for spelling differences.
+                  </p>
+                </div>
+              )}
+              {showImportResult.studentsWithoutScores.length > 0 && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-yellow-800 font-medium text-sm">
+                    📋 {showImportResult.studentsWithoutScores.length} student(s) in class didn't get a score:
+                  </p>
+                  <ul className="mt-1 text-yellow-700 text-sm list-disc list-inside max-h-32 overflow-y-auto">
+                    {showImportResult.studentsWithoutScores.map((name, i) => <li key={i}>{name}</li>)}
+                  </ul>
+                </div>
+              )}
               {showImportResult.errors.length > 0 && (
                 <ul className="mt-2 text-red-700 text-sm list-disc list-inside">
                   {showImportResult.errors.map((err, i) => <li key={i}>{err}</li>)}
