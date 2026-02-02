@@ -20,6 +20,11 @@ import {
   ArrowUpTrayIcon,
   XMarkIcon,
   TrashIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
+  ChevronUpDownIcon,
+  ArrowUturnLeftIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
@@ -33,6 +38,9 @@ interface StudentWithTests {
   tests: UnitTest[];
   average: number | null;
 }
+
+type SortColumn = 'name' | 'average' | string; // string = test name
+type SortDirection = 'asc' | 'desc' | null;
 
 export default function UnitTestsPage() {
   const params = useParams();
@@ -50,8 +58,10 @@ export default function UnitTestsPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<{
     added: number;
+    testsImported?: string[];
     errors: string[];
   } | null>(null);
+  const [lastImportIds, setLastImportIds] = useState<string[]>([]);
 
   const [newTestName, setNewTestName] = useState('');
   const [newTestDate, setNewTestDate] = useState(new Date().toISOString().split('T')[0]);
@@ -61,6 +71,18 @@ export default function UnitTestsPage() {
   const [editingTestIdx, setEditingTestIdx] = useState<number | null>(null);
   const [editTestName, setEditTestName] = useState('');
   const [editTestDate, setEditTestDate] = useState('');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const highlightedRowRef = useRef<HTMLTableRowElement>(null);
+  const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number | null>(null);
+
+  // Scroll to highlighted student when search changes
+  useEffect(() => {
+    if (searchQuery && highlightedRowRef.current) {
+      highlightedRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [searchQuery]);
 
   useEffect(() => {
     if (mounted) {
@@ -127,6 +149,59 @@ export default function UnitTestsPage() {
     setEditingCell(null);
   };
 
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      if (sortDirection === null) {
+        setSortDirection('desc');
+      } else if (sortDirection === 'desc') {
+        setSortDirection('asc');
+      } else {
+        setSortDirection(null);
+        setSortColumn('name');
+      }
+    } else {
+      setSortColumn(column);
+      setSortDirection(column === 'name' ? 'asc' : 'desc');
+    }
+  };
+
+  const getSortedStudents = () => {
+    if (sortDirection === null || sortColumn === 'name') {
+      return studentsWithTests;
+    }
+
+    return [...studentsWithTests].sort((a, b) => {
+      let aValue: number | null = null;
+      let bValue: number | null = null;
+
+      if (sortColumn === 'average') {
+        aValue = a.average;
+        bValue = b.average;
+      } else {
+        // Sort by specific test name
+        const aTest = a.tests.find(t => t.testName === sortColumn);
+        const bTest = b.tests.find(t => t.testName === sortColumn);
+        aValue = aTest?.score ?? null;
+        bValue = bTest?.score ?? null;
+      }
+
+      if (aValue === null && bValue === null) return 0;
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+
+      return sortDirection === 'desc' ? bValue - aValue : aValue - bValue;
+    });
+  };
+
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column || sortDirection === null) {
+      return <ChevronUpDownIcon className="w-4 h-4 inline ml-1 text-gray-400" />;
+    }
+    return sortDirection === 'desc' 
+      ? <ChevronDownIcon className="w-4 h-4 inline ml-1 text-blue-600" />
+      : <ChevronUpIcon className="w-4 h-4 inline ml-1 text-blue-600" />;
+  };
+
   const handleAddTestColumn = () => {
     if (!newTestName.trim() || !newTestDate) return;
     
@@ -174,9 +249,8 @@ export default function UnitTestsPage() {
     refreshData();
   };
 
-  const deleteTestColumn = (idx: number) => {
+  const confirmDeleteTestColumn = (idx: number) => {
     const testName = testColumns[idx].testName;
-    if (!confirm(`Delete all "${testName}" scores for all students?`)) return;
     
     // Delete all tests with this name
     studentsWithTests.forEach(({ tests }) => {
@@ -187,17 +261,57 @@ export default function UnitTestsPage() {
     });
     
     setTestColumns(prev => prev.filter((_, i) => i !== idx));
+    setDeleteConfirmIdx(null);
     refreshData();
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setImportFile(file);
-      setShowImportModal(true);
-    }
+    if (!file || !currentClass) return;
+    
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+
+    // Parse file first to check if it's multi-test format
+    setIsImporting(true);
+    const result = await parseTestsFileFromInput(file);
+    
+    if (result.errors.length > 0 && result.summary.totalRecords === 0) {
+      setImportResult({ added: 0, errors: result.errors });
+      setIsImporting(false);
+      return;
+    }
+
+    if (result.isMultiTest) {
+      // Multi-test format - import directly
+      let added = 0;
+      const importedIds: string[] = [];
+      const testsImported = new Set<string>();
+
+      for (const record of result.multiTestRecords) {
+        const student = findOrCreateStudent(record.studentName, classId);
+        const test = addUnitTest(student.id, record.testName, record.date, record.score);
+        if (test) {
+          added++;
+          importedIds.push(test.id);
+          testsImported.add(record.testName);
+        }
+      }
+
+      setLastImportIds(importedIds);
+      setImportResult({
+        added,
+        testsImported: Array.from(testsImported),
+        errors: result.errors,
+      });
+      refreshData();
+      setIsImporting(false);
+    } else {
+      // Single-test format - show modal to get test name
+      setImportFile(file);
+      setShowImportModal(true);
+      setIsImporting(false);
     }
   };
 
@@ -208,15 +322,21 @@ export default function UnitTestsPage() {
     const result = await parseTestsFileFromInput(importFile);
     
     let added = 0;
+    const importedIds: string[] = [];
 
     for (const record of result.records) {
       const student = findOrCreateStudent(record.studentName, classId);
-      addUnitTest(student.id, importTestName.trim(), importTestDate, record.score);
-      added++;
+      const test = addUnitTest(student.id, importTestName.trim(), importTestDate, record.score);
+      if (test) {
+        added++;
+        importedIds.push(test.id);
+      }
     }
 
+    setLastImportIds(importedIds);
     setImportResult({
       added,
+      testsImported: [importTestName.trim()],
       errors: result.errors,
     });
 
@@ -226,6 +346,20 @@ export default function UnitTestsPage() {
     setImportFile(null);
     setImportTestName('');
     setImportTestDate(new Date().toISOString().split('T')[0]);
+  };
+
+  const handleUndoImport = () => {
+    if (lastImportIds.length === 0) return;
+    
+    if (!confirm(`Undo last import? This will delete ${lastImportIds.length} test scores.`)) return;
+    
+    for (const id of lastImportIds) {
+      deleteUnitTest(id);
+    }
+    
+    setLastImportIds([]);
+    setImportResult(null);
+    refreshData();
   };
 
   const getScoreColor = (score: number | null) => {
@@ -322,7 +456,7 @@ export default function UnitTestsPage() {
                     className="text-blue-600 hover:text-blue-700 text-sm"
                   >Edit</button>
                   <button
-                    onClick={() => deleteTestColumn(idx)}
+                    onClick={() => setDeleteConfirmIdx(idx)}
                     className="text-red-500 hover:text-red-600 p-1"
                   >
                     <TrashIcon className="w-4 h-4" />
@@ -378,7 +512,12 @@ export default function UnitTestsPage() {
             <div>
               <h3 className="font-semibold text-blue-900">Import Complete</h3>
               <p className="text-blue-800 mt-1">
-                Added scores for {importResult.added} students
+                Added {importResult.added} test scores
+                {importResult.testsImported && importResult.testsImported.length > 0 && (
+                  <span className="block text-sm mt-1">
+                    Tests: {importResult.testsImported.join(', ')}
+                  </span>
+                )}
               </p>
               {importResult.errors.length > 0 && (
                 <div className="mt-2 text-red-700">
@@ -387,11 +526,42 @@ export default function UnitTestsPage() {
                   </ul>
                 </div>
               )}
+              {lastImportIds.length > 0 && (
+                <button
+                  onClick={handleUndoImport}
+                  className="mt-3 flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium text-sm"
+                >
+                  <ArrowUturnLeftIcon className="w-4 h-4" />
+                  Undo Import
+                </button>
+              )}
             </div>
             <button onClick={() => setImportResult(null)} className="text-blue-600 hover:text-blue-800">
               <XMarkIcon className="w-5 h-5" />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Search Bar */}
+      {studentsWithTests.length > 0 && (
+        <div className="relative max-w-sm">
+          <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Find student..."
+            className="input pl-10 w-full"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
+          )}
         </div>
       )}
 
@@ -408,16 +578,32 @@ export default function UnitTestsPage() {
           <table className="data-table text-sm" style={{ tableLayout: 'auto' }}>
             <thead>
               <tr>
-                <th rowSpan={2} className="sticky left-0 bg-[var(--cace-gray)] z-10 whitespace-nowrap w-0">Student Name</th>
+                <th 
+                  rowSpan={2} 
+                  className="sticky left-0 bg-[var(--cace-gray)] z-10 whitespace-nowrap w-0 cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('name')}
+                >
+                  Student Name <SortIcon column="name" />
+                </th>
                 {testColumns.map((col, idx) => (
-                  <th key={idx} className="text-center border-l min-w-[90px]">
-                    {col.testName}
+                  <th 
+                    key={idx} 
+                    className="text-center border-l min-w-[90px] cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort(col.testName)}
+                  >
+                    {col.testName} <SortIcon column={col.testName} />
                   </th>
                 ))}
                 {testColumns.length === 0 && (
                   <th className="text-center border-l min-w-[90px] text-gray-400">No tests yet</th>
                 )}
-                <th rowSpan={2} className="text-center border-l min-w-[70px]">Avg</th>
+                <th 
+                  rowSpan={2} 
+                  className="text-center border-l min-w-[70px] cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('average')}
+                >
+                  Avg <SortIcon column="average" />
+                </th>
               </tr>
               <tr>
                 {testColumns.map((col, idx) => (
@@ -431,9 +617,19 @@ export default function UnitTestsPage() {
               </tr>
             </thead>
             <tbody>
-              {studentsWithTests.map(({ student, tests, average }) => (
-                <tr key={student.id}>
-                  <td className="sticky left-0 bg-white font-medium z-10 whitespace-nowrap w-0">{student.name}</td>
+              {getSortedStudents().map(({ student, tests, average }, rowIndex) => {
+                const isMatch = searchQuery && student.name.toLowerCase().includes(searchQuery.toLowerCase());
+                const isFirstMatch = isMatch && getSortedStudents().findIndex(s => 
+                  s.student.name.toLowerCase().includes(searchQuery.toLowerCase())
+                ) === rowIndex;
+                
+                return (
+                <tr 
+                  key={student.id} 
+                  ref={isFirstMatch ? highlightedRowRef : null}
+                  className={isMatch ? 'bg-yellow-100' : ''}
+                >
+                  <td className={`sticky left-0 font-medium z-10 whitespace-nowrap w-0 ${isMatch ? 'bg-yellow-100' : 'bg-white'}`}>{student.name}</td>
                   {testColumns.map((col, idx) => {
                     const test = tests.find(t => t.testName === col.testName);
                     const isEditing = editingCell?.studentId === student.id && editingCell?.testName === col.testName;
@@ -490,7 +686,8 @@ export default function UnitTestsPage() {
                     ) : '—'}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -564,6 +761,44 @@ export default function UnitTestsPage() {
                 className="btn btn-primary flex-1 disabled:opacity-50"
               >
                 {isImporting ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Test Confirmation Modal */}
+      {deleteConfirmIdx !== null && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmIdx(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-red-600">Delete Test</h2>
+              <button onClick={() => setDeleteConfirmIdx(null)} className="p-1 hover:bg-gray-100 rounded">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <p className="text-gray-700">
+                Are you sure you want to delete <strong>"{testColumns[deleteConfirmIdx]?.testName}"</strong>?
+              </p>
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-red-700 text-sm font-medium">
+                  ⚠️ This action cannot be undone.
+                </p>
+                <p className="text-red-600 text-sm mt-1">
+                  All scores for this test will be deleted forever.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setDeleteConfirmIdx(null)} className="btn btn-secondary flex-1">
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmDeleteTestColumn(deleteConfirmIdx)}
+                className="btn flex-1 bg-red-600 text-white hover:bg-red-700"
+              >
+                Delete Forever
               </button>
             </div>
           </div>

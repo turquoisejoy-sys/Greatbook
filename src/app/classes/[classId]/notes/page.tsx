@@ -6,7 +6,7 @@ import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses, updateStudent } from '@/lib/storage';
 import { sortStudentsByLastName } from '@/lib/calculations';
 import { Student, Class } from '@/types';
-import { CheckIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, PencilIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
 export default function NotesPage() {
@@ -18,6 +18,7 @@ export default function NotesPage() {
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingNotes, setEditingNotes] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const allClasses = getClasses();
@@ -50,6 +51,23 @@ export default function NotesPage() {
     setEditingNotes('');
   };
 
+  // Filter and sort students: matches appear first
+  const filteredStudents = searchQuery.trim()
+    ? students
+        .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        .sort((a, b) => {
+          const aName = a.name.toLowerCase();
+          const bName = b.name.toLowerCase();
+          const query = searchQuery.toLowerCase();
+          // Prioritize names that start with the query
+          const aStarts = aName.startsWith(query);
+          const bStarts = bName.startsWith(query);
+          if (aStarts && !bStarts) return -1;
+          if (!aStarts && bStarts) return 1;
+          return aName.localeCompare(bName);
+        })
+    : students;
+
   if (!currentClass) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -74,6 +92,20 @@ export default function NotesPage() {
         </p>
       </div>
 
+      {/* Search Bar */}
+      {students.length > 0 && (
+        <div className="relative">
+          <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search students..."
+            className="input pl-10 w-full"
+          />
+        </div>
+      )}
+
       {/* Students List */}
       {students.length === 0 ? (
         <div className="card text-center py-12">
@@ -82,9 +114,13 @@ export default function NotesPage() {
             Add Students
           </Link>
         </div>
+      ) : filteredStudents.length === 0 ? (
+        <div className="card text-center py-8">
+          <p className="text-gray-500">No students match "{searchQuery}"</p>
+        </div>
       ) : (
         <div className="space-y-4">
-          {students.map(student => (
+          {filteredStudents.map(student => (
             <div key={student.id} className="card">
               <div className="flex items-start justify-between mb-2">
                 <div>

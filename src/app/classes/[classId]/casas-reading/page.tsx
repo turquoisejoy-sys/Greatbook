@@ -16,9 +16,12 @@ import { parseCASASFileFromInput } from '@/lib/parsers';
 import { calculateCASASAverage, calculateCASASProgress, getColorLevel, compareByLastName } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
 import {
-  PlusIcon,
   ArrowUpTrayIcon,
   XMarkIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
+  ChevronUpDownIcon,
+  ArrowUturnLeftIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
@@ -28,6 +31,9 @@ interface StudentWithTests {
   average: number | null;
   progress: number | null;
 }
+
+type SortColumn = 'name' | 'average' | number; // number = test index
+type SortDirection = 'asc' | 'desc' | null;
 
 export default function CASASReadingPage() {
   const params = useParams();
@@ -45,10 +51,13 @@ export default function CASASReadingPage() {
     warnings: string[];
   } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [lastImportIds, setLastImportIds] = useState<string[]>([]);
   const [editingCell, setEditingCell] = useState<{ studentId: string; testIndex: number } | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editForm, setEditForm] = useState('');
   const [editScore, setEditScore] = useState('');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
   useEffect(() => {
     if (mounted) {
@@ -127,6 +136,58 @@ export default function CASASReadingPage() {
     setEditingCell(null);
   };
 
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      // Cycle: null -> desc -> asc -> null (for scores, high to low first)
+      if (sortDirection === null) {
+        setSortDirection('desc');
+      } else if (sortDirection === 'desc') {
+        setSortDirection('asc');
+      } else {
+        setSortDirection(null);
+        setSortColumn('name'); // Reset to alphabetical
+      }
+    } else {
+      setSortColumn(column);
+      setSortDirection(column === 'name' ? 'asc' : 'desc'); // Name: A-Z, Scores: High-Low
+    }
+  };
+
+  const getSortedStudents = () => {
+    if (sortDirection === null || sortColumn === 'name') {
+      return studentsWithTests; // Already sorted alphabetically
+    }
+
+    return [...studentsWithTests].sort((a, b) => {
+      let aValue: number | null = null;
+      let bValue: number | null = null;
+
+      if (sortColumn === 'average') {
+        aValue = a.average;
+        bValue = b.average;
+      } else if (typeof sortColumn === 'number') {
+        aValue = a.tests[sortColumn]?.score ?? null;
+        bValue = b.tests[sortColumn]?.score ?? null;
+      }
+
+      // Null values go to the bottom
+      if (aValue === null && bValue === null) return 0;
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+
+      return sortDirection === 'desc' ? bValue - aValue : aValue - bValue;
+    });
+  };
+
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column || sortDirection === null) {
+      return <ChevronUpDownIcon className="w-4 h-4 inline ml-1 text-gray-400" />;
+    }
+    return sortDirection === 'desc' 
+      ? <ChevronDownIcon className="w-4 h-4 inline ml-1 text-blue-600" />
+      : <ChevronUpIcon className="w-4 h-4 inline ml-1 text-blue-600" />;
+  };
+
   const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !currentClass) return;
@@ -136,18 +197,38 @@ export default function CASASReadingPage() {
     
     let added = 0;
     let skipped = 0;
+    const importedIds: string[] = [];
 
     for (const row of result.reading) {
       const student = findOrCreateStudent(row.studentName, classId);
       const test = addCASASTest(student.id, 'reading', row.date, row.formNumber, row.score);
-      if (test) added++;
-      else skipped++;
+      if (test) {
+        added++;
+        importedIds.push(test.id);
+      } else {
+        skipped++;
+      }
     }
 
+    setLastImportIds(importedIds);
     setShowImportResult({ added, skipped, errors: result.errors, warnings: result.warnings });
     refreshData(currentClass);
     setIsImporting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleUndoImport = () => {
+    if (lastImportIds.length === 0) return;
+    
+    if (!confirm(`Undo last import? This will delete ${lastImportIds.length} test scores.`)) return;
+    
+    for (const id of lastImportIds) {
+      deleteCASASTest(id);
+    }
+    
+    setLastImportIds([]);
+    setShowImportResult(null);
+    if (currentClass) refreshData(currentClass);
   };
 
   const getProgressColor = (progress: number | null) => {
@@ -229,6 +310,15 @@ export default function CASASReadingPage() {
                   {showImportResult.errors.map((err, i) => <li key={i}>{err}</li>)}
                 </ul>
               )}
+              {lastImportIds.length > 0 && (
+                <button
+                  onClick={handleUndoImport}
+                  className="mt-3 flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium text-sm"
+                >
+                  <ArrowUturnLeftIcon className="w-4 h-4" />
+                  Undo Import
+                </button>
+              )}
             </div>
             <button onClick={() => setShowImportResult(null)} className="text-blue-600 hover:text-blue-800">
               <XMarkIcon className="w-5 h-5" />
@@ -248,25 +338,42 @@ export default function CASASReadingPage() {
           <table className="data-table text-sm">
             <thead>
               <tr>
-                <th rowSpan={2} className="sticky left-0 bg-[var(--cace-gray)] z-10 min-w-[150px]">Student</th>
+                <th 
+                  rowSpan={2} 
+                  className="sticky left-0 bg-[var(--cace-gray)] z-10 min-w-[150px] cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('name')}
+                >
+                  Student <SortIcon column="name" />
+                </th>
                 {testColumns.map(num => (
                   <th key={num} colSpan={3} className="text-center border-l">Test {num}</th>
                 ))}
-                <th rowSpan={2} className="text-center border-l">Avg</th>
+                <th 
+                  rowSpan={2} 
+                  className="text-center border-l cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('average')}
+                >
+                  Avg <SortIcon column="average" />
+                </th>
                 <th rowSpan={2} className="text-center">Progress</th>
               </tr>
               <tr>
-                {testColumns.map(num => (
+                {testColumns.map((num, idx) => (
                   <React.Fragment key={num}>
                     <th className="text-center text-xs font-normal border-l">Date</th>
                     <th className="text-center text-xs font-normal">Form</th>
-                    <th className="text-center text-xs font-normal">Score</th>
+                    <th 
+                      className="text-center text-xs font-normal cursor-pointer hover:bg-gray-200"
+                      onClick={() => handleSort(idx)}
+                    >
+                      Score <SortIcon column={idx} />
+                    </th>
                   </React.Fragment>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {studentsWithTests.map(({ student, tests, average, progress }) => (
+              {getSortedStudents().map(({ student, tests, average, progress }) => (
                 <tr key={student.id}>
                   <td className="sticky left-0 bg-white font-medium z-10">{student.name}</td>
                   {testColumns.map((_, idx) => {
