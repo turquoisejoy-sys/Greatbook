@@ -16,6 +16,7 @@ import {
   getAttendanceByStudent,
   getStudentsByClass,
   getAttendance,
+  getClasses,
 } from './storage';
 
 // ============================================
@@ -566,4 +567,68 @@ export function getClassMetrics(classId: string, schoolYear: string): ClassMetri
       endYear: calculateEndYearRetention(classId, schoolYear),
     },
   };
+}
+
+/**
+ * Get ranked students for a class by ID
+ */
+export function getStudentsWithRanksByClassId(classId: string): StudentWithStats[] {
+  const classes = getClasses();
+  const classData = classes.find(c => c.id === classId);
+  if (!classData) return [];
+  
+  const students = getStudentsByClass(classId);
+  return getStudentsWithRanks(students, classData);
+}
+
+/**
+ * Get top N performers (highest overall scores)
+ */
+export function getTopPerformers(classId: string, count: number = 5): StudentWithStats[] {
+  const rankedStudents = getStudentsWithRanksByClassId(classId);
+  
+  return rankedStudents
+    .filter(s => s.isComplete && s.rank !== null)
+    .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999)) // Lowest rank number = highest performer
+    .slice(0, count);
+}
+
+/**
+ * Get bottom N students (at-risk, lowest overall scores)
+ */
+export function getAtRiskStudents(classId: string, count: number = 5): StudentWithStats[] {
+  const rankedStudents = getStudentsWithRanksByClassId(classId);
+  
+  const ranked = rankedStudents
+    .filter(s => s.isComplete && s.rank !== null)
+    .sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0)); // Highest rank number = lowest performer
+  
+  return ranked.slice(0, count);
+}
+
+/**
+ * Calculate Year-to-Date Retention
+ * Students who enrolled from August to now and are still active (not dropped)
+ */
+export function calculateYTDRetention(classId: string, schoolYear: string): RetentionResult {
+  const students = getStudentsByClass(classId);
+  const [startYear] = schoolYear.split('-').map(Number);
+  
+  // Year start: August of school year
+  const yearStart = `${startYear}-08-01`;
+  const now = new Date().toISOString().split('T')[0];
+  
+  // Students who enrolled from August to now
+  const eligible = students.filter(s => 
+    s.enrollmentDate >= yearStart && s.enrollmentDate <= now
+  );
+  
+  // Of those, how many are still active (not dropped)?
+  const retained = eligible.filter(s => !s.isDropped);
+  
+  const rate = eligible.length > 0 
+    ? (retained.length / eligible.length) * 100 
+    : null;
+  
+  return { rate, retained: retained.length, eligible: eligible.length };
 }

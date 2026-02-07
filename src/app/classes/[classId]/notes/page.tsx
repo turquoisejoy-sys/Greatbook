@@ -265,6 +265,7 @@ export default function NotesPage() {
                           title="Print notes"
                         >
                           <PrinterIcon className="w-4 h-4" />
+                          Print
                         </button>
                       )}
                       <button

@@ -14,6 +14,8 @@ import {
   UnitTest,
   Attendance,
   ReportCard,
+  StudentNote,
+  ISSTRecord,
 } from '@/types';
 
 // ============================================
@@ -200,6 +202,38 @@ export async function uploadReportCards(reportCards: ReportCard[]): Promise<void
   }
 }
 
+export async function uploadStudentNotes(notes: StudentNote[]): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  if (notes.length === 0) return;
+  
+  const data = notes.map(n => toSnakeCase(n as unknown as Record<string, unknown>));
+  
+  const { error } = await supabase
+    .from('student_notes')
+    .upsert(data, { onConflict: 'id' });
+  
+  if (error) {
+    console.error('Student notes upload error:', error);
+    throw error;
+  }
+}
+
+export async function uploadISSTRecords(records: ISSTRecord[]): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  if (records.length === 0) return;
+  
+  const data = records.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
+  
+  const { error } = await supabase
+    .from('isst_records')
+    .upsert(data, { onConflict: 'id' });
+  
+  if (error) {
+    console.error('ISST records upload error:', error);
+    throw error;
+  }
+}
+
 // ============================================
 // Download Functions (Supabase -> Local)
 // ============================================
@@ -276,6 +310,30 @@ export async function downloadReportCards(): Promise<ReportCard[]> {
   return (data || []).map(row => toCamelCase(row) as unknown as ReportCard);
 }
 
+export async function downloadStudentNotes(): Promise<StudentNote[]> {
+  if (!isSupabaseConfigured()) return [];
+  
+  const { data, error } = await supabase
+    .from('student_notes')
+    .select('*');
+  
+  if (error) throw error;
+  
+  return (data || []).map(row => toCamelCase(row) as unknown as StudentNote);
+}
+
+export async function downloadISSTRecords(): Promise<ISSTRecord[]> {
+  if (!isSupabaseConfigured()) return [];
+  
+  const { data, error } = await supabase
+    .from('isst_records')
+    .select('*');
+  
+  if (error) throw error;
+  
+  return (data || []).map(row => toCamelCase(row) as unknown as ISSTRecord);
+}
+
 // ============================================
 // Delete Functions (sync deletions)
 // ============================================
@@ -305,6 +363,8 @@ export async function uploadAllToCloud(data: {
   unitTests: UnitTest[];
   attendance: Attendance[];
   reportCards: ReportCard[];
+  studentNotes?: StudentNote[];
+  isstRecords?: ISSTRecord[];
 }): Promise<void> {
   if (!isSupabaseConfigured()) {
     console.log('Supabase not configured, skipping sync');
@@ -327,6 +387,8 @@ export async function uploadAllToCloud(data: {
     const validUnitTests = data.unitTests.filter(t => finalStudentIds.has(t.studentId));
     const validAttendance = data.attendance.filter(a => finalStudentIds.has(a.studentId));
     const validReportCards = data.reportCards.filter(r => finalStudentIds.has(r.studentId));
+    const validStudentNotes = (data.studentNotes || []).filter(n => finalStudentIds.has(n.studentId));
+    const validISSTRecords = (data.isstRecords || []).filter(r => finalStudentIds.has(r.studentId));
     
     // Upload in order (classes first due to foreign keys)
     await uploadClasses(data.classes);
@@ -335,6 +397,8 @@ export async function uploadAllToCloud(data: {
     await uploadUnitTests(validUnitTests);
     await uploadAttendance(validAttendance);
     await uploadReportCards(validReportCards);
+    await uploadStudentNotes(validStudentNotes);
+    await uploadISSTRecords(validISSTRecords);
     
     setSyncStatus('synced');
   } catch (error) {
@@ -355,6 +419,8 @@ export async function downloadAllFromCloud(): Promise<{
   unitTests: UnitTest[];
   attendance: Attendance[];
   reportCards: ReportCard[];
+  studentNotes: StudentNote[];
+  isstRecords: ISSTRecord[];
 } | null> {
   if (!isSupabaseConfigured()) {
     console.log('Supabase not configured, skipping download');
@@ -364,18 +430,20 @@ export async function downloadAllFromCloud(): Promise<{
   setSyncStatus('syncing');
   
   try {
-    const [classes, students, casasTests, unitTests, attendance, reportCards] = await Promise.all([
+    const [classes, students, casasTests, unitTests, attendance, reportCards, studentNotes, isstRecords] = await Promise.all([
       downloadClasses(),
       downloadStudents(),
       downloadCASASTests(),
       downloadUnitTests(),
       downloadAttendance(),
       downloadReportCards(),
+      downloadStudentNotes(),
+      downloadISSTRecords(),
     ]);
     
     setSyncStatus('synced');
     
-    return { classes, students, casasTests, unitTests, attendance, reportCards };
+    return { classes, students, casasTests, unitTests, attendance, reportCards, studentNotes, isstRecords };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Download error:', message);

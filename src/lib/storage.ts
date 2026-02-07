@@ -13,7 +13,7 @@ import {
   ISSTRecord,
   StudentNote,
 } from '@/types';
-import { queueSync, downloadAllFromCloud, isSupabaseConfigured } from './sync';
+import { queueSync, downloadAllFromCloud, isSupabaseConfigured, deleteFromCloud } from './sync';
 
 // ============================================
 // Local Storage Keys
@@ -73,6 +73,8 @@ function triggerSync(): void {
     unitTests: getFromStorage<UnitTest[]>(STORAGE_KEYS.unitTests, []),
     attendance: getFromStorage<Attendance[]>(STORAGE_KEYS.attendance, []),
     reportCards: getFromStorage<ReportCard[]>(STORAGE_KEYS.reportCards, []),
+    studentNotes: getFromStorage<StudentNote[]>(STORAGE_KEYS.studentNotes, []),
+    isstRecords: getFromStorage<ISSTRecord[]>(STORAGE_KEYS.isstRecords, []),
   });
 }
 
@@ -95,6 +97,8 @@ export async function syncFromCloud(): Promise<boolean> {
     const localUnitTests = getFromStorage<UnitTest[]>(STORAGE_KEYS.unitTests, []);
     const localAttendance = getFromStorage<Attendance[]>(STORAGE_KEYS.attendance, []);
     const localReportCards = getFromStorage<ReportCard[]>(STORAGE_KEYS.reportCards, []);
+    const localStudentNotes = getFromStorage<StudentNote[]>(STORAGE_KEYS.studentNotes, []);
+    const localISSTRecords = getFromStorage<ISSTRecord[]>(STORAGE_KEYS.isstRecords, []);
     
     // Merge function: combine local and cloud, prefer newer by updatedAt/createdAt
     function mergeArrays<T extends { id: string; updatedAt?: string; createdAt?: string }>(
@@ -131,6 +135,8 @@ export async function syncFromCloud(): Promise<boolean> {
     const mergedUnitTests = mergeArrays(localUnitTests, cloudData.unitTests);
     const mergedAttendance = mergeArrays(localAttendance, cloudData.attendance);
     const mergedReportCards = mergeArrays(localReportCards, cloudData.reportCards);
+    const mergedStudentNotes = mergeArrays(localStudentNotes, cloudData.studentNotes);
+    const mergedISSTRecords = mergeArrays(localISSTRecords, cloudData.isstRecords);
     
     // Save merged data to local storage
     saveToStorage(STORAGE_KEYS.classes, mergedClasses);
@@ -139,6 +145,8 @@ export async function syncFromCloud(): Promise<boolean> {
     saveToStorage(STORAGE_KEYS.unitTests, mergedUnitTests);
     saveToStorage(STORAGE_KEYS.attendance, mergedAttendance);
     saveToStorage(STORAGE_KEYS.reportCards, mergedReportCards);
+    saveToStorage(STORAGE_KEYS.studentNotes, mergedStudentNotes);
+    saveToStorage(STORAGE_KEYS.isstRecords, mergedISSTRecords);
     
     // Upload merged data back to cloud (in case local had newer items)
     triggerSync();
@@ -270,11 +278,44 @@ export function updateClass(classId: string, updates: Partial<Class>): Class | n
 }
 
 export function deleteClass(classId: string): void {
+  // Get students in this class before deleting (need their IDs for cloud cleanup)
+  const studentsToDelete = getStudents().filter(s => s.classId === classId);
+  const studentIdsToDelete = new Set(studentsToDelete.map(s => s.id));
+  
+  // Delete from local storage
   const classes = getClasses().filter(c => c.id !== classId);
   saveClasses(classes);
+  
   // Also delete all students in this class
   const students = getStudents().filter(s => s.classId !== classId);
   saveStudents(students);
+  
+  // Delete all related data for these students
+  const casasTests = getCASASTests().filter(t => !studentIdsToDelete.has(t.studentId));
+  saveCASASTests(casasTests);
+  
+  const unitTests = getUnitTests().filter(t => !studentIdsToDelete.has(t.studentId));
+  saveUnitTests(unitTests);
+  
+  const attendance = getAttendance().filter(a => !studentIdsToDelete.has(a.studentId));
+  saveAttendance(attendance);
+  
+  const reportCards = getReportCards().filter(r => !studentIdsToDelete.has(r.studentId));
+  saveReportCards(reportCards);
+  
+  const isstRecords = getISSTRecords().filter(r => !studentIdsToDelete.has(r.studentId));
+  saveISSTRecords(isstRecords);
+  
+  const studentNotes = getStudentNotes().filter(n => !studentIdsToDelete.has(n.studentId));
+  saveStudentNotes(studentNotes);
+  
+  // Delete from cloud (async, fire and forget)
+  deleteFromCloud('classes', classId).catch(err => console.error('Failed to delete class from cloud:', err));
+  
+  // Delete students and their data from cloud
+  for (const student of studentsToDelete) {
+    deleteFromCloud('students', student.id).catch(err => console.error('Failed to delete student from cloud:', err));
+  }
 }
 
 export function getCurrentClassId(): string | null {
@@ -429,6 +470,8 @@ export function updateCASASTest(testId: string, updates: Partial<CASASTest>): vo
 export function deleteCASASTest(testId: string): void {
   const tests = getCASASTests().filter(t => t.id !== testId);
   saveCASASTests(tests);
+  // Delete from cloud
+  deleteFromCloud('casas_tests', testId).catch(err => console.error('Failed to delete CASAS test from cloud:', err));
 }
 
 // ============================================
@@ -475,6 +518,8 @@ export function updateUnitTest(testId: string, updates: Partial<UnitTest>): void
 export function deleteUnitTest(testId: string): void {
   const tests = getUnitTests().filter(t => t.id !== testId);
   saveUnitTests(tests);
+  // Delete from cloud
+  deleteFromCloud('unit_tests', testId).catch(err => console.error('Failed to delete unit test from cloud:', err));
 }
 
 // ============================================
@@ -549,10 +594,16 @@ export function toggleVacation(studentId: string, month: string): boolean {
 }
 
 export function deleteAttendance(studentId: string, month: string): void {
-  const attendance = getAttendance().filter(
+  const allAttendance = getAttendance();
+  const toDelete = allAttendance.find(a => a.studentId === studentId && a.month === month);
+  const attendance = allAttendance.filter(
     a => !(a.studentId === studentId && a.month === month)
   );
   saveAttendance(attendance);
+  // Delete from cloud
+  if (toDelete) {
+    deleteFromCloud('attendance', toDelete.id).catch(err => console.error('Failed to delete attendance from cloud:', err));
+  }
 }
 
 // ============================================
@@ -603,6 +654,8 @@ export function updateReportCard(reportCardId: string, updates: Partial<ReportCa
 export function deleteReportCard(reportCardId: string): void {
   const reportCards = getReportCards().filter(r => r.id !== reportCardId);
   saveReportCards(reportCards);
+  // Delete from cloud
+  deleteFromCloud('report_cards', reportCardId).catch(err => console.error('Failed to delete report card from cloud:', err));
 }
 
 // ============================================
@@ -661,6 +714,7 @@ function getStudentNotes(): StudentNote[] {
 function saveStudentNotes(notes: StudentNote[]): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_KEYS.studentNotes, JSON.stringify(notes));
+  triggerSync();
 }
 
 export function getNotesByStudent(studentId: string): StudentNote[] {
@@ -693,6 +747,8 @@ export function deleteStudentNote(noteId: string): void {
   const notes = getStudentNotes();
   const filtered = notes.filter(n => n.id !== noteId);
   saveStudentNotes(filtered);
+  // Delete from cloud
+  deleteFromCloud('student_notes', noteId).catch(err => console.error('Failed to delete student note from cloud:', err));
 }
 
 export function updateStudentNote(noteId: string, content: string, date: string): void {
@@ -732,6 +788,7 @@ function getISSTRecords(): ISSTRecord[] {
 function saveISSTRecords(records: ISSTRecord[]): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_KEYS.isstRecords, JSON.stringify(records));
+  triggerSync();
 }
 
 export function getISSTRecordsByStudent(studentId: string): ISSTRecord[] {
@@ -782,12 +839,15 @@ export function removeISSTDate(studentId: string, month: string, date: string): 
   const existingIndex = records.findIndex(r => r.studentId === studentId && r.month === month);
   
   if (existingIndex >= 0) {
+    const recordId = records[existingIndex].id;
     records[existingIndex].dates = records[existingIndex].dates.filter(d => d !== date);
     records[existingIndex].updatedAt = new Date().toISOString();
     
     // Remove record entirely if no dates left
     if (records[existingIndex].dates.length === 0) {
       records.splice(existingIndex, 1);
+      // Delete from cloud since record is removed
+      deleteFromCloud('isst_records', recordId).catch(err => console.error('Failed to delete ISST record from cloud:', err));
     }
     
     saveISSTRecords(records);

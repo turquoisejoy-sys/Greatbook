@@ -10,15 +10,20 @@ import {
   getCurrentAcademicYear,
   getAcademicYearOptions,
 } from '@/lib/storage';
-import { getClassMetrics } from '@/lib/calculations';
-import { Class, CACELevel, CACE_LEVELS, ClassMetrics } from '@/types';
+import { 
+  getClassMetrics,
+  getTopPerformers,
+  getAtRiskStudents,
+  calculateYTDRetention,
+  getClassAttendanceAverage,
+  calculate30DayRetention,
+} from '@/lib/calculations';
+import { Class, CACELevel, CACE_LEVELS, StudentWithStats } from '@/types';
 import { 
   PlusIcon, 
-  TrashIcon, 
-  UserGroupIcon,
+  TrashIcon,
   AcademicCapIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline';
 
 export default function Dashboard() {
@@ -30,7 +35,6 @@ export default function Dashboard() {
   const [newClassName, setNewClassName] = useState('');
   const [newClassSchedule, setNewClassSchedule] = useState('Morning');
   const [newClassLevel, setNewClassLevel] = useState<CACELevel>(3);
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (mounted) {
@@ -44,17 +48,38 @@ export default function Dashboard() {
   }, [mounted, selectedYear]);
 
   // Calculate metrics for all filtered classes
-  const classMetrics = useMemo(() => {
-    if (!mounted || !selectedYear) return new Map<string, ClassMetrics>();
+  const classData = useMemo(() => {
+    if (!mounted || !selectedYear) return new Map<string, {
+      studentCount: number;
+      avgAttendance: number | null;
+      thirtyDayRetention: number | null;
+      ytdRetention: number | null;
+      topPerformers: StudentWithStats[];
+      atRiskStudents: StudentWithStats[];
+    }>();
     
-    const metrics = new Map<string, ClassMetrics>();
+    const data = new Map();
     const filteredClasses = classes.filter(c => c.academicYear === selectedYear);
     
     for (const cls of filteredClasses) {
-      metrics.set(cls.id, getClassMetrics(cls.id, selectedYear));
+      const students = getStudentsByClass(cls.id);
+      const avgAttendance = getClassAttendanceAverage(cls.id);
+      const thirtyDay = calculate30DayRetention(cls.id);
+      const ytd = calculateYTDRetention(cls.id, selectedYear);
+      const topPerformers = getTopPerformers(cls.id, 5);
+      const atRiskStudents = getAtRiskStudents(cls.id, 5);
+      
+      data.set(cls.id, {
+        studentCount: students.length,
+        avgAttendance,
+        thirtyDayRetention: thirtyDay.rate,
+        ytdRetention: ytd.rate,
+        topPerformers,
+        atRiskStudents,
+      });
     }
     
-    return metrics;
+    return data;
   }, [classes, selectedYear, mounted]);
 
   const handleAddClass = () => {
@@ -85,44 +110,31 @@ export default function Dashboard() {
     setCurrentClassId(classId);
   };
 
-  const toggleExpanded = (classId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setExpandedCards(prev => {
-      const next = new Set(prev);
-      if (next.has(classId)) {
-        next.delete(classId);
-      } else {
-        next.add(classId);
-      }
-      return next;
-    });
-  };
-
-  // Get best available retention rate for display
-  const getBestRetention = (metrics: ClassMetrics): { rate: number | null; label: string } => {
-    if (metrics.retention.thirtyDay.rate !== null) {
-      return { rate: metrics.retention.thirtyDay.rate, label: '30-Day' };
-    }
-    if (metrics.retention.midyear.rate !== null) {
-      return { rate: metrics.retention.midyear.rate, label: 'Midyear' };
-    }
-    if (metrics.retention.endYear.rate !== null) {
-      return { rate: metrics.retention.endYear.rate, label: 'End-Year' };
-    }
-    return { rate: null, label: '' };
-  };
-
   const filteredClasses = classes.filter(c => c.academicYear === selectedYear);
+
+  // Color helpers
+  const getAttendanceColor = (value: number | null): string => {
+    if (value === null) return 'text-gray-400';
+    if (value >= 80) return 'text-green-600';
+    if (value >= 60) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const getRetentionColor = (value: number | null): string => {
+    if (value === null) return 'text-gray-400';
+    if (value >= 70) return 'text-green-600';
+    if (value >= 50) return 'text-yellow-600';
+    return 'text-red-600';
+  };
 
   if (!mounted) {
     return (
       <div className="max-w-6xl mx-auto">
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-48 mb-4"></div>
-          <div className="grid grid-cols-3 gap-4 mt-8">
-            <div className="h-40 bg-gray-200 rounded"></div>
-            <div className="h-40 bg-gray-200 rounded"></div>
-            <div className="h-40 bg-gray-200 rounded"></div>
+          <div className="grid grid-cols-2 gap-6 mt-8">
+            <div className="h-96 bg-gray-200 rounded"></div>
+            <div className="h-96 bg-gray-200 rounded"></div>
           </div>
         </div>
       </div>
@@ -134,7 +146,7 @@ export default function Dashboard() {
       {/* Header - All on one line */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Your Classes</h1>
+          <h1 className="text-2xl font-bold text-[var(--cace-navy)] whitespace-nowrap">Your Classes</h1>
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(e.target.value)}
@@ -154,7 +166,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Classes Grid */}
+      {/* Classes - Two Panel Layout */}
       {filteredClasses.length === 0 ? (
         <div className="card text-center py-12">
           <AcademicCapIcon className="w-16 h-16 mx-auto text-gray-300 mb-4" />
@@ -175,152 +187,122 @@ export default function Dashboard() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className={`grid gap-6 items-start ${filteredClasses.length === 1 ? 'grid-cols-1 max-w-lg mx-auto' : 'grid-cols-1 md:grid-cols-2'}`}>
           {filteredClasses.map(cls => {
-            const metrics = classMetrics.get(cls.id);
+            const data = classData.get(cls.id);
             const isSelected = cls.id === currentClassId;
-            const isExpanded = expandedCards.has(cls.id);
-            const bestRetention = metrics ? getBestRetention(metrics) : { rate: null, label: '' };
 
             return (
-              <div
+              <button
                 key={cls.id}
                 onClick={() => handleSelectClass(cls.id)}
-                className={`card cursor-pointer transition-all hover:shadow-md ${
+                className={`text-left w-full p-6 rounded-xl border-2 transition-all hover:shadow-lg flex flex-col justify-start items-stretch ${
                   isSelected 
-                    ? 'ring-2 ring-[var(--cace-teal)] border-[var(--cace-teal)]' 
-                    : ''
+                    ? 'border-[var(--cace-teal)] bg-white' 
+                    : 'border-gray-200 bg-white hover:border-gray-300'
                 }`}
-                style={isSelected ? { boxShadow: '0 0 20px 4px rgba(0, 181, 216, 0.35)' } : {}}
+                style={isSelected ? { boxShadow: '0 0 20px 4px rgba(0, 181, 216, 0.25)' } : {}}
               >
                 {/* Header */}
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="font-semibold text-lg">{cls.name}</h3>
-                    <p className="text-sm text-gray-500">
-                      {cls.schedule} • {cls.level !== undefined ? CACE_LEVELS[cls.level as CACELevel]?.name : 'Level 3'}
-                    </p>
+                    <h3 className="font-bold text-xl text-[var(--cace-navy)]">{cls.name}</h3>
+                    <p className="text-sm text-gray-500">{cls.schedule}</p>
                   </div>
-                  <button
+                  <div
                     onClick={(e) => handleDeleteClass(cls.id, e)}
-                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                     title="Delete class"
                   >
                     <TrashIcon className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* Metrics Row */}
-                <div className="mt-4 flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <UserGroupIcon className="w-4 h-4" />
-                    <span>{metrics?.studentCount || 0} students</span>
-                  </div>
-                  <div className="text-gray-600">
-                    Att: {metrics?.averageAttendance !== null 
-                      ? `${metrics.averageAttendance.toFixed(0)}%` 
-                      : '—'}
                   </div>
                 </div>
 
-                {/* Retention Summary + Expand Button */}
-                <div className="mt-3 flex items-center justify-between">
-                  <div className="text-sm">
-                    <span className="text-gray-500">Retention: </span>
-                    {bestRetention.rate !== null ? (
-                      <span className={`font-medium ${
-                        bestRetention.rate >= 70 ? 'text-green-600' : 
-                        bestRetention.rate >= 50 ? 'text-yellow-600' : 'text-red-600'
-                      }`}>
-                        {bestRetention.rate.toFixed(0)}%
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
+                {/* Key Metrics */}
+                <div className="space-y-2 mb-5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Students:</span>
+                    <span className="font-medium">{data?.studentCount ?? 0}</span>
                   </div>
-                  <button
-                    onClick={(e) => toggleExpanded(cls.id, e)}
-                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
-                    title={isExpanded ? 'Hide details' : 'Show details'}
-                  >
-                    {isExpanded ? (
-                      <ChevronUpIcon className="w-4 h-4" />
-                    ) : (
-                      <ChevronDownIcon className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-
-                {/* Expanded Retention Details */}
-                {isExpanded && metrics && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-2 text-sm">
-                    <h4 className="font-medium text-gray-700">Retention Metrics</h4>
-                    
-                    {/* 30-Day */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-500">30-Day:</span>
-                      {metrics.retention.thirtyDay.rate !== null ? (
-                        <span className={`font-medium ${
-                          metrics.retention.thirtyDay.rate >= 70 ? 'text-green-600' : 
-                          metrics.retention.thirtyDay.rate >= 50 ? 'text-yellow-600' : 'text-red-600'
-                        }`}>
-                          {metrics.retention.thirtyDay.rate.toFixed(0)}% 
-                          <span className="text-gray-400 font-normal ml-1">
-                            ({metrics.retention.thirtyDay.retained}/{metrics.retention.thirtyDay.eligible})
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Not enough data</span>
-                      )}
-                    </div>
-
-                    {/* Midyear */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-500">Midyear:</span>
-                      {metrics.retention.midyear.rate !== null ? (
-                        <span className={`font-medium ${
-                          metrics.retention.midyear.rate >= 70 ? 'text-green-600' : 
-                          metrics.retention.midyear.rate >= 50 ? 'text-yellow-600' : 'text-red-600'
-                        }`}>
-                          {metrics.retention.midyear.rate.toFixed(0)}%
-                          <span className="text-gray-400 font-normal ml-1">
-                            ({metrics.retention.midyear.retained}/{metrics.retention.midyear.eligible})
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Not yet</span>
-                      )}
-                    </div>
-
-                    {/* End-Year */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-500">End-Year:</span>
-                      {metrics.retention.endYear.rate !== null ? (
-                        <span className={`font-medium ${
-                          metrics.retention.endYear.rate >= 70 ? 'text-green-600' : 
-                          metrics.retention.endYear.rate >= 50 ? 'text-yellow-600' : 'text-red-600'
-                        }`}>
-                          {metrics.retention.endYear.rate.toFixed(0)}%
-                          <span className="text-gray-400 font-normal ml-1">
-                            ({metrics.retention.endYear.retained}/{metrics.retention.endYear.eligible})
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Not yet</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Selected indicator */}
-                {isSelected && (
-                  <div className="mt-3 pt-3 border-t">
-                    <span className="text-xs font-medium text-[var(--cace-teal)] uppercase tracking-wide">
-                      Currently Selected
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Avg Attendance:</span>
+                    <span className={`font-medium ${getAttendanceColor(data?.avgAttendance ?? null)}`}>
+                      {data?.avgAttendance !== null && data?.avgAttendance !== undefined
+                        ? `${data.avgAttendance.toFixed(0)}%` 
+                        : '—'}
                     </span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">30-Day Retention:</span>
+                    <span className={`font-medium ${getRetentionColor(data?.thirtyDayRetention ?? null)}`}>
+                      {data?.thirtyDayRetention !== null && data?.thirtyDayRetention !== undefined
+                        ? `${data.thirtyDayRetention.toFixed(0)}%` 
+                        : '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">YTD Retention:</span>
+                    <span className={`font-medium ${getRetentionColor(data?.ytdRetention ?? null)}`}>
+                      {data?.ytdRetention !== null && data?.ytdRetention !== undefined
+                        ? `${data.ytdRetention.toFixed(0)}%` 
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Top Performers */}
+                {data && data.topPerformers.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                      Top Performers
+                    </h4>
+                    <div className="space-y-1">
+                      {data.topPerformers.map(student => (
+                        <div key={student.id} className="flex items-center text-sm">
+                          <span className="text-gray-400 w-8">#{student.rank}</span>
+                          <span className="text-gray-700">{student.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
-              </div>
+
+                {/* At Risk */}
+                {data && data.atRiskStudents.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                      At Risk
+                    </h4>
+                    <div className="space-y-1">
+                      {data.atRiskStudents.map(student => (
+                        <div key={student.id} className="flex items-center text-sm">
+                          <span className="text-gray-400 w-8">#{student.rank}</span>
+                          <span className="text-gray-700">{student.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* No ranked students message */}
+                {data && data.topPerformers.length === 0 && data.atRiskStudents.length === 0 && data.studentCount > 0 && (
+                  <div className="text-sm text-gray-400 italic mb-4">
+                    No students with complete ranking data yet
+                  </div>
+                )}
+
+                {/* Selection Indicator */}
+                <div className={`pt-4 border-t ${isSelected ? 'border-[var(--cace-teal)]/30' : 'border-gray-100'}`}>
+                  {isSelected ? (
+                    <div className="flex items-center gap-2 text-[var(--cace-teal)]">
+                      <CheckIcon className="w-4 h-4" />
+                      <span className="text-xs font-semibold uppercase tracking-wide">Selected</span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-400">Click to select</span>
+                  )}
+                </div>
+              </button>
             );
           })}
         </div>
