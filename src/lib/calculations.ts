@@ -381,10 +381,27 @@ export function isStudentActiveInMonth(studentId: string, month: string): boolea
 }
 
 /**
+ * Check if a dropped student came back (has attendance after their drop date)
+ * Used for generous retention calculation - students who return count as retained
+ */
+export function studentCameBack(student: Student): boolean {
+  if (!student.isDropped || !student.droppedDate) return false;
+  
+  // Check for any attendance AFTER their drop date
+  const attendance = getAttendanceByStudent(student.id);
+  const dropMonth = student.droppedDate.substring(0, 7);
+  
+  return attendance.some(a => 
+    a.month > dropMonth && a.percentage > 0 && !a.isVacation
+  );
+}
+
+/**
  * Get all months that have attendance data for a class
  */
 function getClassAttendanceMonths(classId: string): string[] {
-  const students = getStudentsByClass(classId);
+  // Include dropped students to get all months with data
+  const students = getStudentsByClass(classId, true);
   const studentIds = new Set(students.map(s => s.id));
   const allAttendance = getAttendance().filter(a => studentIds.has(a.studentId));
   const months = new Set(allAttendance.map(a => a.month));
@@ -395,9 +412,14 @@ function getClassAttendanceMonths(classId: string): string[] {
  * Calculate 30-Day Buffered Retention
  * retained = active in (entryMonth+1) OR (entryMonth+2)
  * Eligible = students with entryMonth AND at least 2 months of data after
+ * 
+ * Generous retention logic:
+ * - Dropped students who came back = RETAINED (as if they never left)
+ * - Dropped students who never came back = NOT RETAINED
  */
 export function calculate30DayRetention(classId: string): RetentionResult {
-  const students = getStudentsByClass(classId);
+  // Include dropped students for accurate retention calculation
+  const students = getStudentsByClass(classId, true);
   const availableMonths = new Set(getClassAttendanceMonths(classId));
   
   let eligible = 0;
@@ -426,8 +448,13 @@ export function calculate30DayRetention(classId: string): RetentionResult {
     const activeMonth2 = isStudentActiveInMonth(student.id, month2);
     
     if (activeMonth1 || activeMonth2) {
+      // Active at checkpoint = retained
+      retained++;
+    } else if (student.isDropped && studentCameBack(student)) {
+      // Dropped but came back later = count as retained (generous)
       retained++;
     }
+    // Otherwise: dropped and never came back = not retained
   }
   
   return {
@@ -440,9 +467,14 @@ export function calculate30DayRetention(classId: string): RetentionResult {
 /**
  * Calculate Midyear Retention (Fall → January)
  * For students who entered Aug-Dec, check if active in January
+ * 
+ * Generous retention logic:
+ * - Dropped students who came back = RETAINED (as if they never left)
+ * - Dropped students who never came back = NOT RETAINED
  */
 export function calculateMidyearRetention(classId: string, schoolYear: string): RetentionResult {
-  const students = getStudentsByClass(classId);
+  // Include dropped students for accurate retention calculation
+  const students = getStudentsByClass(classId, true);
   const [startYear] = schoolYear.split('-').map(Number);
   
   // Fall months: Aug-Dec of start year
@@ -469,8 +501,13 @@ export function calculateMidyearRetention(classId: string, schoolYear: string): 
     eligible++;
     
     if (isStudentActiveInMonth(student.id, januaryMonth)) {
+      // Active in January = retained
+      retained++;
+    } else if (student.isDropped && studentCameBack(student)) {
+      // Dropped but came back later = count as retained (generous)
       retained++;
     }
+    // Otherwise: dropped and never came back = not retained
   }
   
   return {
@@ -483,9 +520,14 @@ export function calculateMidyearRetention(classId: string, schoolYear: string): 
 /**
  * Calculate End-of-Year Retention
  * For students who entered by March, check if active in May OR June
+ * 
+ * Generous retention logic:
+ * - Dropped students who came back = RETAINED (as if they never left)
+ * - Dropped students who never came back = NOT RETAINED
  */
 export function calculateEndYearRetention(classId: string, schoolYear: string): RetentionResult {
-  const students = getStudentsByClass(classId);
+  // Include dropped students for accurate retention calculation
+  const students = getStudentsByClass(classId, true);
   const [startYear] = schoolYear.split('-').map(Number);
   const endYear = startYear + 1;
   
@@ -520,8 +562,13 @@ export function calculateEndYearRetention(classId: string, schoolYear: string): 
     const activeJune = isStudentActiveInMonth(student.id, juneMonth);
     
     if (activeMay || activeJune) {
+      // Active in May/June = retained
+      retained++;
+    } else if (student.isDropped && studentCameBack(student)) {
+      // Dropped but came back later = count as retained (generous)
       retained++;
     }
+    // Otherwise: dropped and never came back = not retained
   }
   
   return {
@@ -610,8 +657,17 @@ export function getAtRiskStudents(classId: string, count: number = 5): StudentWi
  * Calculate Year-to-Date Retention
  * Students who enrolled from August to now and are still active (not dropped)
  */
+/**
+ * Calculate Year-to-Date Retention
+ * Students who enrolled from August to now and are still active (not dropped)
+ * 
+ * Generous retention logic:
+ * - Dropped students who came back = RETAINED (as if they never left)
+ * - Dropped students who never came back = NOT RETAINED
+ */
 export function calculateYTDRetention(classId: string, schoolYear: string): RetentionResult {
-  const students = getStudentsByClass(classId);
+  // Include dropped students for accurate retention calculation
+  const students = getStudentsByClass(classId, true);
   const [startYear] = schoolYear.split('-').map(Number);
   
   // Year start: August of school year
@@ -619,16 +675,18 @@ export function calculateYTDRetention(classId: string, schoolYear: string): Rete
   const now = new Date().toISOString().split('T')[0];
   
   // Students who enrolled from August to now
-  const eligible = students.filter(s => 
+  const eligibleStudents = students.filter(s => 
     s.enrollmentDate >= yearStart && s.enrollmentDate <= now
   );
   
-  // Of those, how many are still active (not dropped)?
-  const retained = eligible.filter(s => !s.isDropped);
+  // Count retained: active OR came back after dropping
+  const retainedStudents = eligibleStudents.filter(s => 
+    !s.isDropped || studentCameBack(s)
+  );
   
-  const rate = eligible.length > 0 
-    ? (retained.length / eligible.length) * 100 
+  const rate = eligibleStudents.length > 0 
+    ? (retainedStudents.length / eligibleStudents.length) * 100 
     : null;
   
-  return { rate, retained: retained.length, eligible: eligible.length };
+  return { rate, retained: retainedStudents.length, eligible: eligibleStudents.length };
 }

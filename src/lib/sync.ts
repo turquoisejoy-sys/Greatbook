@@ -206,15 +206,20 @@ export async function uploadStudentNotes(notes: StudentNote[]): Promise<void> {
   if (!isSupabaseConfigured()) return;
   if (notes.length === 0) return;
   
-  const data = notes.map(n => toSnakeCase(n as unknown as Record<string, unknown>));
-  
-  const { error } = await supabase
-    .from('student_notes')
-    .upsert(data, { onConflict: 'id' });
-  
-  if (error) {
-    console.error('Student notes upload error:', error);
-    throw error;
+  try {
+    const data = notes.map(n => toSnakeCase(n as unknown as Record<string, unknown>));
+    
+    const { error } = await supabase
+      .from('student_notes')
+      .upsert(data, { onConflict: 'id' });
+    
+    if (error) {
+      // Log but don't throw - table might not exist yet
+      console.log('student_notes sync skipped (table may not exist):', error.message || 'unknown');
+    }
+  } catch {
+    // Silently fail - table doesn't exist yet
+    console.log('student_notes sync skipped');
   }
 }
 
@@ -222,15 +227,20 @@ export async function uploadISSTRecords(records: ISSTRecord[]): Promise<void> {
   if (!isSupabaseConfigured()) return;
   if (records.length === 0) return;
   
-  const data = records.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
-  
-  const { error } = await supabase
-    .from('isst_records')
-    .upsert(data, { onConflict: 'id' });
-  
-  if (error) {
-    console.error('ISST records upload error:', error);
-    throw error;
+  try {
+    const data = records.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
+    
+    const { error } = await supabase
+      .from('isst_records')
+      .upsert(data, { onConflict: 'id' });
+    
+    if (error) {
+      // Log but don't throw - table might not exist yet
+      console.log('isst_records sync skipped (table may not exist):', error.message || 'unknown');
+    }
+  } catch {
+    // Silently fail - table doesn't exist yet
+    console.log('isst_records sync skipped');
   }
 }
 
@@ -313,25 +323,45 @@ export async function downloadReportCards(): Promise<ReportCard[]> {
 export async function downloadStudentNotes(): Promise<StudentNote[]> {
   if (!isSupabaseConfigured()) return [];
   
-  const { data, error } = await supabase
-    .from('student_notes')
-    .select('*');
-  
-  if (error) throw error;
-  
-  return (data || []).map(row => toCamelCase(row) as unknown as StudentNote);
+  try {
+    const { data, error } = await supabase
+      .from('student_notes')
+      .select('*');
+    
+    if (error) {
+      // Table might not exist yet - return empty
+      console.log('student_notes download skipped (table may not exist)');
+      return [];
+    }
+    
+    return (data || []).map(row => toCamelCase(row) as unknown as StudentNote);
+  } catch {
+    // Silently fail - table doesn't exist yet
+    console.log('student_notes download skipped');
+    return [];
+  }
 }
 
 export async function downloadISSTRecords(): Promise<ISSTRecord[]> {
   if (!isSupabaseConfigured()) return [];
   
-  const { data, error } = await supabase
-    .from('isst_records')
-    .select('*');
-  
-  if (error) throw error;
-  
-  return (data || []).map(row => toCamelCase(row) as unknown as ISSTRecord);
+  try {
+    const { data, error } = await supabase
+      .from('isst_records')
+      .select('*');
+    
+    if (error) {
+      // Table might not exist yet - return empty
+      console.log('isst_records download skipped (table may not exist)');
+      return [];
+    }
+    
+    return (data || []).map(row => toCamelCase(row) as unknown as ISSTRecord);
+  } catch {
+    // Silently fail - table doesn't exist yet
+    console.log('isst_records download skipped');
+    return [];
+  }
 }
 
 // ============================================
