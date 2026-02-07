@@ -6,11 +6,16 @@ import {
   Attendance,
   StudentWithStats,
   RankingWeights,
+  RetentionResult,
+  RetentionMetrics,
+  ClassMetrics,
 } from '@/types';
 import {
   getCASASTestsByStudent,
   getUnitTestsByStudent,
   getAttendanceByStudent,
+  getStudentsByClass,
+  getAttendance,
 } from './storage';
 
 // ============================================
@@ -337,4 +342,228 @@ export function compareByLastName(a: string, b: string): number {
  */
 export function sortStudentsByLastName<T extends { name: string }>(students: T[]): T[] {
   return [...students].sort((a, b) => compareByLastName(a.name, b.name));
+}
+
+// ============================================
+// Retention Calculations
+// ============================================
+
+/**
+ * Add months to a YYYY-MM string
+ */
+function addMonths(monthStr: string, numMonths: number): string {
+  const [year, month] = monthStr.split('-').map(Number);
+  const date = new Date(year, month - 1 + numMonths, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Get a student's entry month (first month with attendance > 0, non-vacation)
+ */
+export function getStudentEntryMonth(studentId: string): string | null {
+  const attendance = getAttendanceByStudent(studentId);
+  const activeMonths = attendance
+    .filter(a => !a.isVacation && a.percentage > 0)
+    .map(a => a.month)
+    .sort();
+  
+  return activeMonths.length > 0 ? activeMonths[0] : null;
+}
+
+/**
+ * Check if student was active in a specific month (attendance > 0, non-vacation)
+ */
+export function isStudentActiveInMonth(studentId: string, month: string): boolean {
+  const attendance = getAttendanceByStudent(studentId);
+  const record = attendance.find(a => a.month === month);
+  return record ? (!record.isVacation && record.percentage > 0) : false;
+}
+
+/**
+ * Get all months that have attendance data for a class
+ */
+function getClassAttendanceMonths(classId: string): string[] {
+  const students = getStudentsByClass(classId);
+  const studentIds = new Set(students.map(s => s.id));
+  const allAttendance = getAttendance().filter(a => studentIds.has(a.studentId));
+  const months = new Set(allAttendance.map(a => a.month));
+  return Array.from(months).sort();
+}
+
+/**
+ * Calculate 30-Day Buffered Retention
+ * retained = active in (entryMonth+1) OR (entryMonth+2)
+ * Eligible = students with entryMonth AND at least 2 months of data after
+ */
+export function calculate30DayRetention(classId: string): RetentionResult {
+  const students = getStudentsByClass(classId);
+  const availableMonths = new Set(getClassAttendanceMonths(classId));
+  
+  let eligible = 0;
+  let retained = 0;
+  
+  for (const student of students) {
+    const entryMonth = getStudentEntryMonth(student.id);
+    if (!entryMonth) continue; // No active months, not eligible
+    
+    const month1 = addMonths(entryMonth, 1);
+    const month2 = addMonths(entryMonth, 2);
+    
+    // Check if we have enough data (at least month1 or month2 exists)
+    const hasMonth1Data = availableMonths.has(month1);
+    const hasMonth2Data = availableMonths.has(month2);
+    
+    if (!hasMonth1Data && !hasMonth2Data) {
+      // Not enough data yet - student is "not yet eligible"
+      continue;
+    }
+    
+    eligible++;
+    
+    // Check if retained (active in month1 OR month2)
+    const activeMonth1 = isStudentActiveInMonth(student.id, month1);
+    const activeMonth2 = isStudentActiveInMonth(student.id, month2);
+    
+    if (activeMonth1 || activeMonth2) {
+      retained++;
+    }
+  }
+  
+  return {
+    rate: eligible > 0 ? (retained / eligible) * 100 : null,
+    retained,
+    eligible,
+  };
+}
+
+/**
+ * Calculate Midyear Retention (Fall → January)
+ * For students who entered Aug-Dec, check if active in January
+ */
+export function calculateMidyearRetention(classId: string, schoolYear: string): RetentionResult {
+  const students = getStudentsByClass(classId);
+  const [startYear] = schoolYear.split('-').map(Number);
+  
+  // Fall months: Aug-Dec of start year
+  const fallMonths = ['08', '09', '10', '11', '12'].map(m => `${startYear}-${m}`);
+  // Midyear month: January of next year
+  const januaryMonth = `${startYear + 1}-01`;
+  
+  // Check if January data exists
+  const availableMonths = new Set(getClassAttendanceMonths(classId));
+  if (!availableMonths.has(januaryMonth)) {
+    return { rate: null, retained: 0, eligible: 0 };
+  }
+  
+  let eligible = 0;
+  let retained = 0;
+  
+  for (const student of students) {
+    const entryMonth = getStudentEntryMonth(student.id);
+    if (!entryMonth) continue;
+    
+    // Check if entry month is in fall
+    if (!fallMonths.includes(entryMonth)) continue;
+    
+    eligible++;
+    
+    if (isStudentActiveInMonth(student.id, januaryMonth)) {
+      retained++;
+    }
+  }
+  
+  return {
+    rate: eligible > 0 ? (retained / eligible) * 100 : null,
+    retained,
+    eligible,
+  };
+}
+
+/**
+ * Calculate End-of-Year Retention
+ * For students who entered by March, check if active in May OR June
+ */
+export function calculateEndYearRetention(classId: string, schoolYear: string): RetentionResult {
+  const students = getStudentsByClass(classId);
+  const [startYear] = schoolYear.split('-').map(Number);
+  const endYear = startYear + 1;
+  
+  // Cutoff: students must have entered by March
+  const cutoffMonth = `${endYear}-03`;
+  // End months: May or June
+  const mayMonth = `${endYear}-05`;
+  const juneMonth = `${endYear}-06`;
+  
+  // Check if May or June data exists
+  const availableMonths = new Set(getClassAttendanceMonths(classId));
+  const hasMay = availableMonths.has(mayMonth);
+  const hasJune = availableMonths.has(juneMonth);
+  
+  if (!hasMay && !hasJune) {
+    return { rate: null, retained: 0, eligible: 0 };
+  }
+  
+  let eligible = 0;
+  let retained = 0;
+  
+  for (const student of students) {
+    const entryMonth = getStudentEntryMonth(student.id);
+    if (!entryMonth) continue;
+    
+    // Check if entry month is before or equal to cutoff
+    if (entryMonth > cutoffMonth) continue;
+    
+    eligible++;
+    
+    const activeMay = isStudentActiveInMonth(student.id, mayMonth);
+    const activeJune = isStudentActiveInMonth(student.id, juneMonth);
+    
+    if (activeMay || activeJune) {
+      retained++;
+    }
+  }
+  
+  return {
+    rate: eligible > 0 ? (retained / eligible) * 100 : null,
+    retained,
+    eligible,
+  };
+}
+
+/**
+ * Calculate class average attendance (across all students)
+ */
+export function getClassAttendanceAverage(classId: string): number | null {
+  const students = getStudentsByClass(classId);
+  if (students.length === 0) return null;
+  
+  const averages: number[] = [];
+  
+  for (const student of students) {
+    const attendance = getAttendanceByStudent(student.id);
+    const avg = calculateAttendanceAverage(attendance);
+    if (avg !== null) {
+      averages.push(avg);
+    }
+  }
+  
+  if (averages.length === 0) return null;
+  return averages.reduce((sum, a) => sum + a, 0) / averages.length;
+}
+
+/**
+ * Get all metrics for a class
+ */
+export function getClassMetrics(classId: string, schoolYear: string): ClassMetrics {
+  const students = getStudentsByClass(classId);
+  
+  return {
+    studentCount: students.length,
+    averageAttendance: getClassAttendanceAverage(classId),
+    retention: {
+      thirtyDay: calculate30DayRetention(classId),
+      midyear: calculateMidyearRetention(classId, schoolYear),
+      endYear: calculateEndYearRetention(classId, schoolYear),
+    },
+  };
 }

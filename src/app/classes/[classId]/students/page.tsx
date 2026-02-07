@@ -261,10 +261,9 @@ export default function StudentsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Name</th>
+                <th className="w-1/2">Name</th>
                 <th>Enrolled</th>
-                <th>Notes</th>
-                <th className="text-right">Actions</th>
+                <th className="text-right w-32">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -280,9 +279,6 @@ export default function StudentsPage() {
                   </td>
                   <td className="text-gray-600">
                     {new Date(student.enrollmentDate + 'T00:00:00').toLocaleDateString()}
-                  </td>
-                  <td className="text-gray-500 text-sm max-w-xs truncate">
-                    {student.notes || '—'}
                   </td>
                   <td>
                     <div className="flex items-center justify-end gap-1">

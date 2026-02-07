@@ -16,17 +16,19 @@ import {
   CloudIcon,
   CloudArrowUpIcon,
   ExclamationCircleIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
 import { SyncStatus } from '@/lib/sync';
 
 interface SidebarProps {
   currentClassId: string | null;
+  currentClassName?: string | null;
   syncStatus?: SyncStatus;
   isCloudEnabled?: boolean;
   className?: string;
 }
 
-export default function Sidebar({ currentClassId, syncStatus = 'idle', isCloudEnabled = false, className }: SidebarProps) {
+export default function Sidebar({ currentClassId, currentClassName, syncStatus = 'idle', isCloudEnabled = false, className }: SidebarProps) {
   const pathname = usePathname();
 
   const classBasePath = currentClassId ? `/classes/${currentClassId}` : '';
@@ -38,6 +40,7 @@ export default function Sidebar({ currentClassId, syncStatus = 'idle', isCloudEn
   const classLinks = currentClassId ? [
     { href: `${classBasePath}/students`, label: 'Students', icon: UserGroupIcon },
     { href: `${classBasePath}/notes`, label: 'Notes', icon: PencilSquareIcon },
+    { href: `${classBasePath}/isst`, label: 'ISST', icon: ClockIcon },
     { href: `${classBasePath}/casas-reading`, label: 'CASAS Reading', icon: AcademicCapIcon },
     { href: `${classBasePath}/casas-listening`, label: 'CASAS Listening', icon: AcademicCapIcon },
     { href: `${classBasePath}/tests`, label: 'Unit Tests', icon: ClipboardDocumentListIcon },
@@ -128,7 +131,7 @@ export default function Sidebar({ currentClassId, syncStatus = 'idle', isCloudEn
           <>
             <div className="pt-4 pb-2">
               <p className="px-3 text-xs font-semibold uppercase tracking-wider text-white/40">
-                Current Class
+                {currentClassName || 'Current Class'}
               </p>
             </div>
             {classLinks.map((link) => (

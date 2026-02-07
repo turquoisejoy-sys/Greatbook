@@ -41,8 +41,8 @@ export interface Class {
 export interface RankingWeights {
   casasReading: number;   // default 25
   casasListening: number; // default 25
-  tests: number;          // default 30
-  attendance: number;     // default 20
+  tests: number;          // default 25
+  attendance: number;     // default 25
 }
 
 export interface ColorThresholds {
@@ -154,6 +154,53 @@ export interface StudentWithStats extends Student {
 
 export type SortDirection = 'asc' | 'desc';
 export type SortField = 'name' | 'rank' | 'casasReading' | 'casasListening' | 'tests' | 'attendance';
+
+// ============================================
+// Retention Metrics Types
+// ============================================
+
+export interface RetentionResult {
+  rate: number | null;      // null if not enough data
+  retained: number;         // numerator
+  eligible: number;         // denominator
+}
+
+export interface RetentionMetrics {
+  thirtyDay: RetentionResult;
+  midyear: RetentionResult;
+  endYear: RetentionResult;
+}
+
+export interface ClassMetrics {
+  studentCount: number;
+  averageAttendance: number | null;
+  retention: RetentionMetrics;
+}
+
+// ============================================
+// Student Notes Types
+// ============================================
+
+export interface StudentNote {
+  id: string;
+  studentId: string;
+  content: string;
+  date: string;  // YYYY-MM-DD format
+  createdAt: string;
+}
+
+// ============================================
+// ISST (Tutoring) Types
+// ============================================
+
+export interface ISSTRecord {
+  id: string;
+  studentId: string;
+  month: string;  // Format: YYYY-MM
+  dates: string[];  // Array of dates in YYYY-MM-DD format
+  createdAt: string;
+  updatedAt: string;
+}
 
 // ============================================
 // Import Types

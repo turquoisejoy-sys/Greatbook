@@ -10,6 +10,8 @@ import {
   ColorThresholds,
   CACELevel,
   CACE_LEVELS,
+  ISSTRecord,
+  StudentNote,
 } from '@/types';
 import { queueSync, downloadAllFromCloud, isSupabaseConfigured } from './sync';
 
@@ -26,6 +28,8 @@ const STORAGE_KEYS = {
   reportCards: 'gradebook_report_cards',
   archivedYears: 'gradebook_archived_years',
   currentClassId: 'gradebook_current_class_id',
+  isstRecords: 'gradebook_isst_records',
+  studentNotes: 'gradebook_student_notes',
 } as const;
 
 // ============================================
@@ -153,8 +157,8 @@ export async function syncFromCloud(): Promise<boolean> {
 export const DEFAULT_RANKING_WEIGHTS: RankingWeights = {
   casasReading: 25,
   casasListening: 25,
-  tests: 30,
-  attendance: 20,
+  tests: 25,
+  attendance: 25,
 };
 
 export const DEFAULT_COLOR_THRESHOLDS: ColorThresholds = {
@@ -204,6 +208,11 @@ export function getClasses(): Class[] {
   classes.forEach(cls => {
     if (!cls.academicYear) {
       cls.academicYear = getCurrentAcademicYear();
+      needsSave = true;
+    }
+    // Migration: update old ranking weights to new equal weights (25% each)
+    if (cls.rankingWeights && (cls.rankingWeights.tests === 30 || cls.rankingWeights.attendance === 20)) {
+      cls.rankingWeights = { ...DEFAULT_RANKING_WEIGHTS };
       needsSave = true;
     }
   });
@@ -640,6 +649,185 @@ export function archiveCurrentYear(yearName: string): ArchivedYear {
 }
 
 // ============================================
+// Student Notes CRUD
+// ============================================
+
+function getStudentNotes(): StudentNote[] {
+  if (typeof window === 'undefined') return [];
+  const data = localStorage.getItem(STORAGE_KEYS.studentNotes);
+  return data ? JSON.parse(data) : [];
+}
+
+function saveStudentNotes(notes: StudentNote[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEYS.studentNotes, JSON.stringify(notes));
+}
+
+export function getNotesByStudent(studentId: string): StudentNote[] {
+  return getStudentNotes()
+    .filter(n => n.studentId === studentId)
+    .sort((a, b) => b.date.localeCompare(a.date)); // Most recent first
+}
+
+export function getNotesByClass(classId: string): StudentNote[] {
+  const students = getStudentsByClass(classId);
+  const studentIds = new Set(students.map(s => s.id));
+  return getStudentNotes().filter(n => studentIds.has(n.studentId));
+}
+
+export function addStudentNote(studentId: string, content: string, date: string): StudentNote {
+  const notes = getStudentNotes();
+  const newNote: StudentNote = {
+    id: generateId(),
+    studentId,
+    content,
+    date,
+    createdAt: new Date().toISOString(),
+  };
+  notes.push(newNote);
+  saveStudentNotes(notes);
+  return newNote;
+}
+
+export function deleteStudentNote(noteId: string): void {
+  const notes = getStudentNotes();
+  const filtered = notes.filter(n => n.id !== noteId);
+  saveStudentNotes(filtered);
+}
+
+export function updateStudentNote(noteId: string, content: string, date: string): void {
+  const notes = getStudentNotes();
+  const index = notes.findIndex(n => n.id === noteId);
+  if (index >= 0) {
+    notes[index].content = content;
+    notes[index].date = date;
+    saveStudentNotes(notes);
+  }
+}
+
+export function migrateOldNotesToNewSystem(classId: string): void {
+  const students = getStudentsByClass(classId);
+  const existingNotes = getStudentNotes();
+  const existingStudentIds = new Set(existingNotes.map(n => n.studentId));
+  
+  // Migrate students with old-style notes that haven't been migrated yet
+  for (const student of students) {
+    if (student.notes && student.notes.trim() && !existingStudentIds.has(student.id)) {
+      // Create a note from the old notes field
+      addStudentNote(student.id, student.notes, new Date().toISOString().split('T')[0]);
+    }
+  }
+}
+
+// ============================================
+// ISST Records CRUD
+// ============================================
+
+function getISSTRecords(): ISSTRecord[] {
+  if (typeof window === 'undefined') return [];
+  const data = localStorage.getItem(STORAGE_KEYS.isstRecords);
+  return data ? JSON.parse(data) : [];
+}
+
+function saveISSTRecords(records: ISSTRecord[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEYS.isstRecords, JSON.stringify(records));
+}
+
+export function getISSTRecordsByStudent(studentId: string): ISSTRecord[] {
+  return getISSTRecords().filter(r => r.studentId === studentId);
+}
+
+export function getISSTRecordsByClass(classId: string): ISSTRecord[] {
+  const students = getStudentsByClass(classId);
+  const studentIds = new Set(students.map(s => s.id));
+  return getISSTRecords().filter(r => studentIds.has(r.studentId));
+}
+
+export function getISSTRecord(studentId: string, month: string): ISSTRecord | undefined {
+  return getISSTRecords().find(r => r.studentId === studentId && r.month === month);
+}
+
+export function addISSTDate(studentId: string, month: string, date: string): ISSTRecord {
+  const records = getISSTRecords();
+  const existingIndex = records.findIndex(r => r.studentId === studentId && r.month === month);
+  
+  if (existingIndex >= 0) {
+    // Add date to existing record if not already present
+    if (!records[existingIndex].dates.includes(date)) {
+      records[existingIndex].dates.push(date);
+      records[existingIndex].dates.sort();
+      records[existingIndex].updatedAt = new Date().toISOString();
+    }
+    saveISSTRecords(records);
+    return records[existingIndex];
+  } else {
+    // Create new record
+    const newRecord: ISSTRecord = {
+      id: generateId(),
+      studentId,
+      month,
+      dates: [date],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    records.push(newRecord);
+    saveISSTRecords(records);
+    return newRecord;
+  }
+}
+
+export function removeISSTDate(studentId: string, month: string, date: string): void {
+  const records = getISSTRecords();
+  const existingIndex = records.findIndex(r => r.studentId === studentId && r.month === month);
+  
+  if (existingIndex >= 0) {
+    records[existingIndex].dates = records[existingIndex].dates.filter(d => d !== date);
+    records[existingIndex].updatedAt = new Date().toISOString();
+    
+    // Remove record entirely if no dates left
+    if (records[existingIndex].dates.length === 0) {
+      records.splice(existingIndex, 1);
+    }
+    
+    saveISSTRecords(records);
+  }
+}
+
+export function updateISSTDates(studentId: string, month: string, dates: string[]): ISSTRecord | null {
+  const records = getISSTRecords();
+  const existingIndex = records.findIndex(r => r.studentId === studentId && r.month === month);
+  
+  if (dates.length === 0) {
+    // Remove record if no dates
+    if (existingIndex >= 0) {
+      records.splice(existingIndex, 1);
+      saveISSTRecords(records);
+    }
+    return null;
+  }
+  
+  if (existingIndex >= 0) {
+    records[existingIndex].dates = [...dates].sort();
+    records[existingIndex].updatedAt = new Date().toISOString();
+    saveISSTRecords(records);
+    return records[existingIndex];
+  } else {
+    const newRecord: ISSTRecord = {
+      id: generateId(),
+      studentId,
+      month,
+      dates: [...dates].sort(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    records.push(newRecord);
+    saveISSTRecords(records);
+    return newRecord;
+  }
+}
+
+// ============================================
 // Export/Import
 // ============================================
 
@@ -651,6 +839,8 @@ export function exportAllData(): string {
     unitTests: getUnitTests(),
     attendance: getAttendance(),
     reportCards: getReportCards(),
+    studentNotes: getStudentNotes(),
+    isstRecords: getISSTRecords(),
     archivedYears: getArchivedYears(),
     exportedAt: new Date().toISOString(),
   };
@@ -666,6 +856,8 @@ export function importAllData(jsonString: string): boolean {
     if (data.unitTests) saveUnitTests(data.unitTests);
     if (data.attendance) saveAttendance(data.attendance);
     if (data.reportCards) saveReportCards(data.reportCards);
+    if (data.studentNotes) saveStudentNotes(data.studentNotes);
+    if (data.isstRecords) saveISSTRecords(data.isstRecords);
     if (data.archivedYears) saveArchivedYears(data.archivedYears);
     return true;
   } catch {

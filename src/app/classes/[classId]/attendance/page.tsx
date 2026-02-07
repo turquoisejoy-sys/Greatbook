@@ -210,6 +210,24 @@ export default function AttendancePage() {
           <p className="text-gray-600">
             {currentClass.name} • {selectedYear}-{selectedYear + 1}
           </p>
+          {studentAttendance.length > 0 && (() => {
+            const validAverages = studentAttendance
+              .map(sa => sa.average)
+              .filter((avg): avg is number => avg !== null);
+            if (validAverages.length === 0) return null;
+            const classAverage = validAverages.reduce((sum, avg) => sum + avg, 0) / validAverages.length;
+            return (
+              <p className="text-sm mt-1">
+                <span className="font-medium">Class Average:</span>{' '}
+                <span className={`font-semibold ${
+                  classAverage >= 80 ? 'text-green-600' : 
+                  classAverage >= 60 ? 'text-yellow-600' : 'text-red-600'
+                }`}>
+                  {classAverage.toFixed(1)}%
+                </span>
+              </p>
+            );
+          })()}
         </div>
         <div className="flex gap-3 items-center">
           <input

@@ -174,7 +174,21 @@ export async function uploadReportCards(reportCards: ReportCard[]): Promise<void
   if (!isSupabaseConfigured()) return;
   if (reportCards.length === 0) return;
   
-  const data = reportCards.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
+  // Ensure backward compatibility with database schema
+  // Don't send teacherComments as the DB column may not exist yet
+  const normalizedCards = reportCards.map(r => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { teacherComments, ...rest } = r;
+    return {
+      ...rest,
+      // Ensure legacy fields have values for database compatibility
+      speakingSkills: r.speakingSkills ?? r.teacherComments ?? '',
+      writingSkills: r.writingSkills ?? '',
+      suggestionsForImprovement: r.suggestionsForImprovement ?? '',
+    };
+  });
+  
+  const data = normalizedCards.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
   
   const { error } = await supabase
     .from('report_cards')

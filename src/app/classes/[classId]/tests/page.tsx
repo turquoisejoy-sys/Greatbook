@@ -618,7 +618,8 @@ export default function UnitTestsPage() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Find student..."
-            className="input pl-10 w-full"
+            className="input w-full"
+            style={{ paddingLeft: '2.5rem' }}
           />
           {searchQuery && (
             <button

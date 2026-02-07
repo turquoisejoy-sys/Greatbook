@@ -96,7 +96,12 @@ export default function AppShell({ children }: AppShellProps) {
       isCloudEnabled,
     }}>
       <div className="flex min-h-screen bg-[var(--cace-gray)]">
-        <Sidebar currentClassId={currentClassId} syncStatus={syncStatus} isCloudEnabled={isCloudEnabled} />
+        <Sidebar 
+          currentClassId={currentClassId} 
+          currentClassName={classes.find(c => c.id === currentClassId)?.name}
+          syncStatus={syncStatus} 
+          isCloudEnabled={isCloudEnabled} 
+        />
         <main className="flex-1 p-8 overflow-auto">
           {children}
         </main>
