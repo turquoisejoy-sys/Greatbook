@@ -257,7 +257,7 @@ export default function Dashboard() {
                       Top Performers
                     </h4>
                     <div className="space-y-1">
-                      {data.topPerformers.map(student => (
+                      {data.topPerformers.map((student: StudentWithStats) => (
                         <div key={student.id} className="flex items-center text-sm">
                           <span className="text-gray-400 w-8">#{student.rank}</span>
                           <span className="text-gray-700">{student.name}</span>
@@ -274,7 +274,7 @@ export default function Dashboard() {
                       At Risk
                     </h4>
                     <div className="space-y-1">
-                      {data.atRiskStudents.map(student => (
+                      {data.atRiskStudents.map((student: StudentWithStats) => (
                         <div key={student.id} className="flex items-center text-sm">
                           <span className="text-gray-400 w-8">#{student.rank}</span>
                           <span className="text-gray-700">{student.name}</span>
