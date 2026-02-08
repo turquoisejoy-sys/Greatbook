@@ -668,6 +668,8 @@ export function getArchivedYears(): ArchivedYear[] {
 
 export function saveArchivedYears(years: ArchivedYear[]): void {
   saveToStorage(STORAGE_KEYS.archivedYears, years);
+  // Note: Archived years are stored locally only (too large for cloud sync)
+  // Consider manual export/backup for archived data
 }
 
 export function archiveCurrentYear(yearName: string): ArchivedYear {

@@ -10,12 +10,15 @@ import {
   DEFAULT_RANKING_WEIGHTS,
   DEFAULT_COLOR_THRESHOLDS,
 } from '@/lib/storage';
+import { testSupabaseSync } from '@/lib/sync';
 import { Class, RankingWeights, ColorThresholds } from '@/types';
 import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  CloudIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 
 export default function SettingsPage() {
@@ -28,6 +31,8 @@ export default function SettingsPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [importMessage, setImportMessage] = useState('');
+  const [syncTestStatus, setSyncTestStatus] = useState<'idle' | 'testing' | 'done'>('idle');
+  const [syncTestResult, setSyncTestResult] = useState<Awaited<ReturnType<typeof testSupabaseSync>> | null>(null);
 
   useEffect(() => {
     if (mounted && currentClassId) {
@@ -139,6 +144,22 @@ export default function SettingsPage() {
   };
 
   const weightsTotal = weights.casasReading + weights.casasListening + weights.tests + weights.attendance;
+
+  const handleTestSync = async () => {
+    setSyncTestStatus('testing');
+    setSyncTestResult(null);
+    try {
+      const result = await testSupabaseSync();
+      setSyncTestResult(result);
+    } catch {
+      setSyncTestResult({
+        configured: false,
+        connected: false,
+        tables: [],
+      });
+    }
+    setSyncTestStatus('done');
+  };
 
   if (!mounted) {
     return (
@@ -346,6 +367,125 @@ export default function SettingsPage() {
                 </span>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Cloud Sync Status */}
+      <div className="card">
+        <h2 className="text-xl font-semibold text-[var(--cace-navy)] mb-4 flex items-center gap-2">
+          <CloudIcon className="w-6 h-6" />
+          Cloud Sync Status
+        </h2>
+        <p className="text-gray-600 mb-6">
+          Your data is automatically backed up to Supabase cloud. Test the connection to verify everything is working.
+        </p>
+
+        <button
+          onClick={handleTestSync}
+          disabled={syncTestStatus === 'testing'}
+          className="btn btn-primary mb-6"
+        >
+          {syncTestStatus === 'testing' ? (
+            <>
+              <ArrowPathIcon className="w-5 h-5 animate-spin" />
+              Testing...
+            </>
+          ) : (
+            <>
+              <CloudIcon className="w-5 h-5" />
+              Test Cloud Sync
+            </>
+          )}
+        </button>
+
+        {syncTestResult && (
+          <div className="space-y-4">
+            {/* Connection Status */}
+            <div className={`p-4 rounded-lg ${
+              syncTestResult.connected 
+                ? 'bg-green-50 border border-green-200' 
+                : 'bg-red-50 border border-red-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                {syncTestResult.connected ? (
+                  <CheckCircleIcon className="w-6 h-6 text-green-600" />
+                ) : (
+                  <ExclamationTriangleIcon className="w-6 h-6 text-red-600" />
+                )}
+                <span className={`font-medium ${
+                  syncTestResult.connected ? 'text-green-800' : 'text-red-800'
+                }`}>
+                  {!syncTestResult.configured 
+                    ? 'Supabase not configured'
+                    : syncTestResult.connected 
+                      ? 'Connected to Supabase' 
+                      : 'Cannot connect to Supabase'}
+                </span>
+              </div>
+            </div>
+
+            {/* Tables Status */}
+            {syncTestResult.tables.length > 0 && (
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium">Data Type</th>
+                      <th className="text-center px-4 py-2 font-medium">Status</th>
+                      <th className="text-right px-4 py-2 font-medium">Records</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {syncTestResult.tables.map(table => (
+                      <tr key={table.name}>
+                        <td className="px-4 py-2 capitalize">
+                          {table.name.replace(/_/g, ' ')}
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          {table.exists ? (
+                            <span className="inline-flex items-center gap-1 text-green-600">
+                              <CheckCircleIcon className="w-4 h-4" />
+                              OK
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-red-600">
+                              <ExclamationTriangleIcon className="w-4 h-4" />
+                              Missing
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-right text-gray-600">
+                          {table.exists ? table.rowCount : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Summary */}
+            {syncTestResult.connected && (
+              <div className={`p-4 rounded-lg ${
+                syncTestResult.tables.every(t => t.exists)
+                  ? 'bg-green-50 border border-green-200'
+                  : 'bg-yellow-50 border border-yellow-200'
+              }`}>
+                {syncTestResult.tables.every(t => t.exists) ? (
+                  <p className="text-green-800 font-medium">
+                    All systems go! Your data is being backed up to the cloud.
+                  </p>
+                ) : (
+                  <div className="text-yellow-800">
+                    <p className="font-medium">Some tables are missing in Supabase.</p>
+                    <p className="text-sm mt-1">
+                      Data for missing tables will be stored locally only until you create them.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

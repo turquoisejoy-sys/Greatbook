@@ -523,3 +523,94 @@ export async function forceSyncNow(data: Parameters<typeof uploadAllToCloud>[0])
   pendingSyncData = null;
   await uploadAllToCloud(data);
 }
+
+// ============================================
+// Sync Test Function
+// ============================================
+
+export interface SyncTestResult {
+  configured: boolean;
+  connected: boolean;
+  tables: {
+    name: string;
+    exists: boolean;
+    rowCount: number | null;
+    error?: string;
+  }[];
+}
+
+/**
+ * Test Supabase connection and verify all tables exist
+ */
+export async function testSupabaseSync(): Promise<SyncTestResult> {
+  const result: SyncTestResult = {
+    configured: isSupabaseConfigured(),
+    connected: false,
+    tables: [],
+  };
+  
+  if (!result.configured) {
+    return result;
+  }
+  
+  // Test connection with a simple query
+  try {
+    const { error } = await supabase.from('classes').select('id').limit(1);
+    result.connected = !error;
+  } catch {
+    result.connected = false;
+  }
+  
+  if (!result.connected) {
+    return result;
+  }
+  
+  // Test each table
+  const tableNames = [
+    'classes',
+    'students', 
+    'casas_tests',
+    'unit_tests',
+    'attendance',
+    'report_cards',
+    'student_notes',
+    'isst_records',
+  ];
+  
+  for (const tableName of tableNames) {
+    try {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('id', { count: 'exact', head: true });
+      
+      if (error) {
+        result.tables.push({
+          name: tableName,
+          exists: false,
+          rowCount: null,
+          error: error.message || 'Table not found',
+        });
+      } else {
+        // Get actual count
+        const { count } = await supabase
+          .from(tableName)
+          .select('*', { count: 'exact', head: true });
+        
+        result.tables.push({
+          name: tableName,
+          exists: true,
+          rowCount: count ?? 0,
+        });
+      }
+    } catch (err) {
+      result.tables.push({
+        name: tableName,
+        exists: false,
+        rowCount: null,
+        error: 'Failed to query table',
+      });
+    }
+  }
+  
+  return result;
+}
