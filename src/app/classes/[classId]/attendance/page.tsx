@@ -80,12 +80,13 @@ export default function AttendancePage() {
   const [importStep, setImportStep] = useState<'select-month' | 'review-zero' | 'review-new'>('select-month');
   const [parsedRecords, setParsedRecords] = useState<AttendanceImportRow[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
-  const [newStudents, setNewStudents] = useState<{ name: string; selected: boolean }[]>([]);
+  const [newStudents, setNewStudents] = useState<{ name: string; selected: boolean; enrollDate: string }[]>([]);
   const [missingStudents, setMissingStudents] = useState<{ student: Student; selected: boolean }[]>([]);
   const [zeroAttendanceStudents, setZeroAttendanceStudents] = useState<{ 
     name: string; 
     action: 'record' | 'vacation' | 'drop' | 'ignore';
     studentId?: string;
+    enrollDate?: string;
   }[]>([]);
 
   useEffect(() => {
@@ -262,11 +263,13 @@ export default function AttendancePage() {
         : result.errors
     );
     // Store ALL new student names (we'll filter out ignored ones later)
-    setNewStudents(newStudentNames.map(name => ({ name, selected: true })));
+    const today = new Date().toISOString().split('T')[0];
+    setNewStudents(newStudentNames.map(name => ({ name, selected: true, enrollDate: today })));
     setMissingStudents(missingStudentsList.map(student => ({ student, selected: false })));
     setZeroAttendanceStudents(zeroAttendanceList.map(item => ({ 
       ...item, 
-      action: 'record' as const  // Default to just recording 0%
+      action: 'record' as const,  // Default to just recording 0%
+      enrollDate: item.studentId ? undefined : today  // Only new students need enrollment date
     })));
     
     setIsImporting(false);
@@ -309,7 +312,7 @@ export default function AttendancePage() {
     
     // Add new students that were selected (but skip if they're marked for drop or ignore)
     const addedNewStudents: string[] = [];
-    for (const { name, selected } of newStudents) {
+    for (const { name, selected, enrollDate } of newStudents) {
       if (selected) {
         const normalizedName = name.trim().toLowerCase();
         const zeroAction = zeroAttendanceActions.get(normalizedName);
@@ -317,7 +320,7 @@ export default function AttendancePage() {
         if (zeroAction === 'drop' || zeroAction === 'ignore') {
           continue;
         }
-        createStudent(name, classId);
+        createStudent(name, classId, enrollDate);
         addedNewStudents.push(name);
       }
     }
@@ -326,7 +329,7 @@ export default function AttendancePage() {
     // (these aren't in newStudents list since they have 0% attendance)
     for (const item of zeroAttendanceStudents) {
       if (!item.studentId && (item.action === 'record' || item.action === 'vacation')) {
-        createStudent(item.name, classId);
+        createStudent(item.name, classId, item.enrollDate);
         addedNewStudents.push(item.name);
       }
     }
@@ -716,27 +719,45 @@ export default function AttendancePage() {
                     </p>
                     <div className="space-y-3">
                       {zeroAttendanceStudents.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between gap-3 py-2 border-b border-purple-200 last:border-0">
-                          <div className="flex-1">
-                            <span className="text-sm font-medium">{item.name}</span>
-                            {!item.studentId && (
-                              <span className="ml-2 text-xs text-purple-500">(new)</span>
-                            )}
+                        <div key={idx} className="flex flex-col gap-2 py-2 border-b border-purple-200 last:border-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1">
+                              <span className="text-sm font-medium">{item.name}</span>
+                              {!item.studentId && (
+                                <span className="ml-2 text-xs text-purple-500">(new)</span>
+                              )}
+                            </div>
+                            <select
+                              value={item.action}
+                              onChange={e => {
+                                const updated = [...zeroAttendanceStudents];
+                                updated[idx].action = e.target.value as 'record' | 'vacation' | 'drop' | 'ignore';
+                                setZeroAttendanceStudents(updated);
+                              }}
+                              className="text-sm rounded border-purple-300 bg-white focus:ring-purple-500 focus:border-purple-500"
+                            >
+                              <option value="record">Record 0%</option>
+                              <option value="vacation">Mark as vacation</option>
+                              <option value="drop">Drop student</option>
+                              <option value="ignore">Ignore (don't import)</option>
+                            </select>
                           </div>
-                          <select
-                            value={item.action}
-                            onChange={e => {
-                              const updated = [...zeroAttendanceStudents];
-                              updated[idx].action = e.target.value as 'record' | 'vacation' | 'drop' | 'ignore';
-                              setZeroAttendanceStudents(updated);
-                            }}
-                            className="text-sm rounded border-purple-300 bg-white focus:ring-purple-500 focus:border-purple-500"
-                          >
-                            <option value="record">Record 0%</option>
-                            <option value="vacation">Mark as vacation</option>
-                            <option value="drop">Drop student</option>
-                            <option value="ignore">Ignore (don't import)</option>
-                          </select>
+                          {/* Show enrollment date picker for NEW students being added */}
+                          {!item.studentId && (item.action === 'record' || item.action === 'vacation') && (
+                            <div className="flex items-center gap-2 ml-4">
+                              <span className="text-xs text-gray-500">Enrollment date:</span>
+                              <input
+                                type="date"
+                                value={item.enrollDate || ''}
+                                onChange={e => {
+                                  const updated = [...zeroAttendanceStudents];
+                                  updated[idx].enrollDate = e.target.value;
+                                  setZeroAttendanceStudents(updated);
+                                }}
+                                className="text-xs border border-gray-300 rounded px-2 py-1"
+                              />
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -817,7 +838,7 @@ export default function AttendancePage() {
                       </p>
                       <div className="space-y-2">
                         {newStudents.map((item, idx) => (
-                          <label key={idx} className="flex items-center gap-2 cursor-pointer">
+                          <div key={idx} className="flex items-center gap-3">
                             <input
                               type="checkbox"
                               checked={item.selected}
@@ -828,8 +849,23 @@ export default function AttendancePage() {
                               }}
                               className="rounded border-green-400 text-green-600 focus:ring-green-500"
                             />
-                            <span className="text-sm">{item.name}</span>
-                          </label>
+                            <span className="text-sm flex-1">{item.name}</span>
+                            {item.selected && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-gray-500">Enroll:</span>
+                                <input
+                                  type="date"
+                                  value={item.enrollDate}
+                                  onChange={e => {
+                                    const updated = [...newStudents];
+                                    updated[idx].enrollDate = e.target.value;
+                                    setNewStudents(updated);
+                                  }}
+                                  className="text-xs border border-gray-300 rounded px-2 py-1"
+                                />
+                              </div>
+                            )}
+                          </div>
                         ))}
                       </div>
                       <div className="mt-2 flex gap-2">
