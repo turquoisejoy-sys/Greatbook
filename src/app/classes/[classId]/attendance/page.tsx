@@ -23,7 +23,6 @@ import {
   UserPlusIcon,
   UserMinusIcon,
   ExclamationTriangleIcon,
-  MinusCircleIcon,
 } from '@heroicons/react/24/outline';
 import { StopIcon } from '@heroicons/react/24/solid';
 import Link from 'next/link';
@@ -71,7 +70,6 @@ export default function AttendancePage() {
     errors: string[];
     newStudentsAdded: number;
     studentsDropped: number;
-    vacationCount?: number;
   } | null>(null);
   const [editingCell, setEditingCell] = useState<{ studentId: string; month: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -82,11 +80,6 @@ export default function AttendancePage() {
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [newStudents, setNewStudents] = useState<{ name: string; selected: boolean }[]>([]);
   const [missingStudents, setMissingStudents] = useState<{ student: Student; selected: boolean }[]>([]);
-  const [zeroAttendanceStudents, setZeroAttendanceStudents] = useState<{ 
-    name: string; 
-    action: 'record' | 'vacation' | 'drop';
-    studentId?: string;
-  }[]>([]);
 
   useEffect(() => {
     if (mounted) {
@@ -198,31 +191,11 @@ export default function AttendancePage() {
       }
     }
     
-    // Find students with zero attendance
-    const zeroAttendanceList: { name: string; studentId?: string }[] = [];
-    for (const record of result.records) {
-      const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
-      if (percentage === 0) {
-        // Check if this is an existing student
-        const existingStudent = currentStudents.find(
-          s => s.name.trim().toLowerCase() === record.studentName.trim().toLowerCase()
-        );
-        zeroAttendanceList.push({
-          name: record.studentName.trim(),
-          studentId: existingStudent?.id,
-        });
-      }
-    }
-    
     // Store parsed data and move to review step
     setParsedRecords(result.records);
     setParseErrors(result.errors);
     setNewStudents(newStudentNames.map(name => ({ name, selected: true })));
     setMissingStudents(missingStudentsList.map(student => ({ student, selected: false })));
-    setZeroAttendanceStudents(zeroAttendanceList.map(item => ({ 
-      ...item, 
-      action: 'record' as const  // Default to just recording 0%
-    })));
     
     setIsImporting(false);
     setImportStep('review');
@@ -251,39 +224,13 @@ export default function AttendancePage() {
       }
     }
     
-    // Handle zero attendance students based on their action
-    const zeroAttendanceActions = new Map<string, 'record' | 'vacation' | 'drop'>();
-    for (const item of zeroAttendanceStudents) {
-      zeroAttendanceActions.set(item.name.trim().toLowerCase(), item.action);
-      // If action is drop and we have a studentId, drop them
-      if (item.action === 'drop' && item.studentId) {
-        dropStudent(item.studentId);
-        droppedCount++;
-      }
-    }
-    
     // Now import attendance for all students in the file
     let added = 0;
-    let vacationCount = 0;
     for (const record of parsedRecords) {
       const student = findStudentByName(record.studentName, classId);
       if (student) {
         const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
-        const normalizedName = record.studentName.trim().toLowerCase();
-        const zeroAction = zeroAttendanceActions.get(normalizedName);
-        
-        // Skip if this student was marked for drop
-        if (zeroAction === 'drop') {
-          continue;
-        }
-        
-        // Mark as vacation if that action was selected
-        if (percentage === 0 && zeroAction === 'vacation') {
-          setAttendance(student.id, importMonth, 0, true); // isVacation = true
-          vacationCount++;
-        } else {
-          setAttendance(student.id, importMonth, percentage, false);
-        }
+        setAttendance(student.id, importMonth, percentage, false);
         added++;
       }
     }
@@ -293,7 +240,6 @@ export default function AttendancePage() {
       errors: parseErrors,
       newStudentsAdded: addedNewStudents.length,
       studentsDropped: droppedCount,
-      vacationCount,
     });
 
     refreshData();
@@ -310,7 +256,6 @@ export default function AttendancePage() {
     setParseErrors([]);
     setNewStudents([]);
     setMissingStudents([]);
-    setZeroAttendanceStudents([]);
   };
 
   const getColorClass = (percentage: number | null, isVacation: boolean) => {
@@ -406,12 +351,6 @@ export default function AttendancePage() {
                 <p className="text-orange-700 mt-1">
                   <UserMinusIcon className="w-4 h-4 inline mr-1" />
                   Dropped {importResult.studentsDropped} student{importResult.studentsDropped !== 1 ? 's' : ''}
-                </p>
-              )}
-              {importResult.vacationCount && importResult.vacationCount > 0 && (
-                <p className="text-purple-700 mt-1">
-                  <MinusCircleIcon className="w-4 h-4 inline mr-1" />
-                  Marked {importResult.vacationCount} student{importResult.vacationCount !== 1 ? 's' : ''} as on vacation
                 </p>
               )}
               {importResult.errors.length > 0 && (
@@ -708,63 +647,8 @@ export default function AttendancePage() {
                     </div>
                   )}
                   
-                  {/* Zero Attendance Section */}
-                  {zeroAttendanceStudents.length > 0 && (
-                    <div className="border rounded-lg p-4 bg-purple-50 border-purple-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <MinusCircleIcon className="w-5 h-5 text-purple-600" />
-                        <h3 className="font-semibold text-purple-800">
-                          Zero Attendance ({zeroAttendanceStudents.length})
-                        </h3>
-                      </div>
-                      <p className="text-sm text-purple-700 mb-3">
-                        These students have 0% attendance this month. What would you like to do?
-                      </p>
-                      <div className="space-y-3">
-                        {zeroAttendanceStudents.map((item, idx) => (
-                          <div key={idx} className="flex items-center justify-between gap-3 py-2 border-b border-purple-200 last:border-0">
-                            <span className="text-sm font-medium">{item.name}</span>
-                            <select
-                              value={item.action}
-                              onChange={e => {
-                                const updated = [...zeroAttendanceStudents];
-                                updated[idx].action = e.target.value as 'record' | 'vacation' | 'drop';
-                                setZeroAttendanceStudents(updated);
-                              }}
-                              className="text-sm rounded border-purple-300 bg-white focus:ring-purple-500 focus:border-purple-500"
-                            >
-                              <option value="record">Record 0%</option>
-                              <option value="vacation">Mark as vacation</option>
-                              <option value="drop">Drop student</option>
-                            </select>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex gap-2 text-xs">
-                        <button
-                          onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'record' })))}
-                          className="text-purple-700 underline"
-                        >
-                          All: Record 0%
-                        </button>
-                        <button
-                          onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'vacation' })))}
-                          className="text-purple-700 underline"
-                        >
-                          All: Vacation
-                        </button>
-                        <button
-                          onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'drop' })))}
-                          className="text-purple-700 underline"
-                        >
-                          All: Drop
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  
                   {/* No changes detected */}
-                  {newStudents.length === 0 && missingStudents.length === 0 && zeroAttendanceStudents.length === 0 && (
+                  {newStudents.length === 0 && missingStudents.length === 0 && (
                     <div className="text-center py-4 text-gray-600">
                       <p>All students in the file match your current roster.</p>
                     </div>
