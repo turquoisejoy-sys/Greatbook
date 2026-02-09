@@ -12,7 +12,7 @@ import {
   deleteUnitTest,
   findStudentByName,
 } from '@/lib/storage';
-import { parseTestsFileFromInput } from '@/lib/parsers';
+import { parseTestsFileFromInput, checkIsMultiTestFormat, parseMultiTestFileFromInput, MultiTestParseResult } from '@/lib/parsers';
 import { calculateTestAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
 import { Student, Class, UnitTest } from '@/types';
 import {
@@ -56,6 +56,8 @@ export default function UnitTestsPage() {
   const [importTestDate, setImportTestDate] = useState(new Date().toISOString().split('T')[0]);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isMultiTestFile, setIsMultiTestFile] = useState(false);
+  const [multiTestPreview, setMultiTestPreview] = useState<MultiTestParseResult | null>(null);
   const [importResult, setImportResult] = useState<{
     added: number;
     testsImported?: string[];
@@ -275,7 +277,18 @@ export default function UnitTestsPage() {
       fileInputRef.current.value = '';
     }
 
-    // Show modal to get test name
+    // Check if it's a multi-test format file
+    const isMulti = await checkIsMultiTestFormat(file);
+    setIsMultiTestFile(isMulti);
+    
+    if (isMulti) {
+      // Parse and preview the multi-test file
+      const preview = await parseMultiTestFileFromInput(file);
+      setMultiTestPreview(preview);
+    } else {
+      setMultiTestPreview(null);
+    }
+
     setImportFile(file);
     setShowImportModal(true);
   };
@@ -331,6 +344,61 @@ export default function UnitTestsPage() {
     setImportFile(null);
     setImportTestName('');
     setImportTestDate(new Date().toISOString().split('T')[0]);
+  };
+
+  const handleMultiTestImport = async () => {
+    if (!importFile || !multiTestPreview || !currentClass) return;
+
+    setIsImporting(true);
+    
+    let added = 0;
+    const importedIds: string[] = [];
+    const unmatchedFromImport: string[] = [];
+    const studentsWhoGotScores = new Set<string>();
+    const testsImported = new Set<string>();
+    
+    // Get all existing students in this class
+    const existingStudents = getStudentsByClass(classId);
+
+    for (const record of multiTestPreview.records) {
+      // Only match existing students - don't create new ones
+      const existingStudent = findStudentByName(record.studentName, classId);
+      
+      if (!existingStudent) {
+        unmatchedFromImport.push(record.studentName);
+        continue;
+      }
+      
+      studentsWhoGotScores.add(existingStudent.id);
+      testsImported.add(record.testName);
+      
+      const test = addUnitTest(existingStudent.id, record.testName, record.date, record.score);
+      if (test) {
+        added++;
+        importedIds.push(test.id);
+      }
+    }
+
+    // Find students who didn't get any score from this import
+    const studentsWithoutScores = existingStudents
+      .filter(s => !studentsWhoGotScores.has(s.id))
+      .map(s => s.name);
+
+    setLastImportIds(importedIds);
+    setImportResult({
+      added,
+      testsImported: Array.from(testsImported),
+      errors: multiTestPreview.errors,
+      unmatchedFromImport: [...new Set(unmatchedFromImport)],
+      studentsWithoutScores,
+    });
+
+    refreshData();
+    setIsImporting(false);
+    setShowImportModal(false);
+    setImportFile(null);
+    setIsMultiTestFile(false);
+    setMultiTestPreview(null);
   };
 
   const handleUndoImport = () => {
@@ -724,53 +792,122 @@ export default function UnitTestsPage() {
         <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">Import Test Scores</h2>
+              <h2 className="text-xl font-semibold">
+                {isMultiTestFile ? 'Import Multiple Tests' : 'Import Test Scores'}
+              </h2>
               <button onClick={() => setShowImportModal(false)} className="p-1 hover:bg-gray-100 rounded">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Test Name
-                </label>
-                <input
-                  type="text"
-                  value={importTestName}
-                  onChange={e => setImportTestName(e.target.value)}
-                  placeholder="e.g., Unit 1, Midterm, Final"
-                  className="input"
-                />
+            
+            {isMultiTestFile && multiTestPreview ? (
+              // Multi-test import UI
+              <div className="space-y-4">
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-blue-800 font-medium">
+                    📊 Progress Tracker format detected!
+                  </p>
+                  <p className="text-blue-700 text-sm mt-1">
+                    Found {multiTestPreview.tests.length} tests with {multiTestPreview.records.length} total scores
+                  </p>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tests to import:
+                  </label>
+                  <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
+                    {multiTestPreview.tests.map((test, idx) => (
+                      <div key={idx} className="flex items-center justify-between px-3 py-2 bg-gray-50">
+                        <span className="font-medium text-sm">{test.name}</span>
+                        <span className="text-gray-500 text-sm">
+                          {new Date(test.date + 'T00:00:00').toLocaleDateString('en-US', { 
+                            month: 'short', day: 'numeric', year: 'numeric' 
+                          })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                <p className="text-sm text-gray-500">
+                  File: {importFile?.name}
+                </p>
+                
+                {multiTestPreview.warnings.length > 0 && (
+                  <div className="text-orange-600 text-sm">
+                    <p className="font-medium">Warnings:</p>
+                    <ul className="list-disc list-inside">
+                      {multiTestPreview.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </div>
+                )}
+                
+                {multiTestPreview.errors.length > 0 && (
+                  <div className="text-red-600 text-sm">
+                    <p className="font-medium">Errors:</p>
+                    <ul className="list-disc list-inside">
+                      {multiTestPreview.errors.map((e, i) => <li key={i}>{e}</li>)}
+                    </ul>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Test Date
-                </label>
-                <input
-                  type="date"
-                  value={importTestDate}
-                  onChange={e => setImportTestDate(e.target.value)}
-                  className="input"
-                />
+            ) : (
+              // Single test import UI
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Test Name
+                  </label>
+                  <input
+                    type="text"
+                    value={importTestName}
+                    onChange={e => setImportTestName(e.target.value)}
+                    placeholder="e.g., Unit 1, Midterm, Final"
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Test Date
+                  </label>
+                  <input
+                    type="date"
+                    value={importTestDate}
+                    onChange={e => setImportTestDate(e.target.value)}
+                    className="input"
+                  />
+                </div>
+                <p className="text-sm text-gray-500">
+                  File: {importFile?.name}
+                </p>
+                <p className="text-xs text-gray-400">
+                  Expected columns: Student Name, Score (0-100)
+                </p>
               </div>
-              <p className="text-sm text-gray-500">
-                File: {importFile?.name}
-              </p>
-              <p className="text-xs text-gray-400">
-                Expected columns: Student Name, Score (0-100)
-              </p>
-            </div>
+            )}
+            
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowImportModal(false)} className="btn btn-secondary flex-1">
                 Cancel
               </button>
-              <button
-                onClick={handleImport}
-                disabled={!importTestName.trim() || isImporting}
-                className="btn btn-primary flex-1 disabled:opacity-50"
-              >
-                {isImporting ? 'Importing...' : 'Import'}
-              </button>
+              {isMultiTestFile ? (
+                <button
+                  onClick={handleMultiTestImport}
+                  disabled={!multiTestPreview || multiTestPreview.errors.length > 0 || isImporting}
+                  className="btn btn-primary flex-1 disabled:opacity-50"
+                >
+                  {isImporting ? 'Importing...' : `Import ${multiTestPreview?.tests.length || 0} Tests`}
+                </button>
+              ) : (
+                <button
+                  onClick={handleImport}
+                  disabled={!importTestName.trim() || isImporting}
+                  className="btn btn-primary flex-1 disabled:opacity-50"
+                >
+                  {isImporting ? 'Importing...' : 'Import'}
+                </button>
+              )}
             </div>
           </div>
         </div>

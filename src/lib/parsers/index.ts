@@ -15,5 +15,10 @@ export {
 export { 
   parseTestsFile, 
   parseTestsFileFromInput,
+  parseMultiTestFile,
+  parseMultiTestFileFromInput,
+  checkIsMultiTestFormat,
   type TestsParseResult,
+  type MultiTestParseResult,
+  type MultiTestImportRow,
 } from './tests-parser';
