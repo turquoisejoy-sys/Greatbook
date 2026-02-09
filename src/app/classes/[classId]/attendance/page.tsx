@@ -787,6 +787,23 @@ export default function AttendancePage() {
                         All: Ignore
                       </button>
                     </div>
+                    {/* Mass enrollment date for new students */}
+                    {zeroAttendanceStudents.some(s => !s.studentId) && (
+                      <div className="mt-3 pt-3 border-t border-purple-200 flex items-center gap-2">
+                        <span className="text-xs text-purple-700">Set all enroll dates (new students):</span>
+                        <input
+                          type="date"
+                          onChange={e => {
+                            if (e.target.value) {
+                              setZeroAttendanceStudents(zeroAttendanceStudents.map(s => 
+                                !s.studentId ? { ...s, enrollDate: e.target.value } : s
+                              ));
+                            }
+                          }}
+                          className="text-xs border border-purple-300 rounded px-2 py-1"
+                        />
+                      </div>
+                    )}
                   </div>
                   
                   {parseErrors.length > 0 && (
@@ -868,19 +885,33 @@ export default function AttendancePage() {
                           </div>
                         ))}
                       </div>
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          onClick={() => setNewStudents(newStudents.map(s => ({ ...s, selected: true })))}
-                          className="text-xs text-green-700 underline"
-                        >
-                          Select all
-                        </button>
-                        <button
-                          onClick={() => setNewStudents(newStudents.map(s => ({ ...s, selected: false })))}
-                          className="text-xs text-green-700 underline"
-                        >
-                          Select none
-                        </button>
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setNewStudents(newStudents.map(s => ({ ...s, selected: true })))}
+                            className="text-xs text-green-700 underline"
+                          >
+                            Select all
+                          </button>
+                          <button
+                            onClick={() => setNewStudents(newStudents.map(s => ({ ...s, selected: false })))}
+                            className="text-xs text-green-700 underline"
+                          >
+                            Select none
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 border-l pl-3 border-green-300">
+                          <span className="text-xs text-green-700">Set all enroll dates:</span>
+                          <input
+                            type="date"
+                            onChange={e => {
+                              if (e.target.value) {
+                                setNewStudents(newStudents.map(s => ({ ...s, enrollDate: e.target.value })));
+                              }
+                            }}
+                            className="text-xs border border-green-300 rounded px-2 py-1"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
