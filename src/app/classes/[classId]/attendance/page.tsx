@@ -10,14 +10,19 @@ import {
   setAttendance,
   toggleVacation,
   deleteAttendance,
-  findOrCreateStudent,
+  findStudentByName,
+  createStudent,
+  dropStudent,
 } from '@/lib/storage';
 import { parseAttendanceFileFromInput, calculateAttendancePercentage } from '@/lib/parsers';
 import { calculateAttendanceAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
-import { Student, Class, Attendance } from '@/types';
+import { Student, Class, Attendance, AttendanceImportRow } from '@/types';
 import {
   ArrowUpTrayIcon,
   XMarkIcon,
+  UserPlusIcon,
+  UserMinusIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { StopIcon } from '@heroicons/react/24/solid';
 import Link from 'next/link';
@@ -63,9 +68,18 @@ export default function AttendancePage() {
   const [importResult, setImportResult] = useState<{
     added: number;
     errors: string[];
+    newStudentsAdded: number;
+    studentsDropped: number;
   } | null>(null);
   const [editingCell, setEditingCell] = useState<{ studentId: string; month: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+  
+  // Import review state
+  const [importStep, setImportStep] = useState<'select-month' | 'review'>('select-month');
+  const [parsedRecords, setParsedRecords] = useState<AttendanceImportRow[]>([]);
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [newStudents, setNewStudents] = useState<{ name: string; selected: boolean }[]>([]);
+  const [missingStudents, setMissingStudents] = useState<{ student: Student; selected: boolean }[]>([]);
 
   useEffect(() => {
     if (mounted) {
@@ -146,31 +160,102 @@ export default function AttendancePage() {
     }
   };
 
-  const handleImport = async () => {
+  const handleAnalyzeImport = async () => {
     if (!importFile || !importMonth || !currentClass) return;
 
     setIsImporting(true);
     const result = await parseAttendanceFileFromInput(importFile);
     
-    let added = 0;
-
+    // Get current roster
+    const currentStudents = getStudentsByClass(classId);
+    const currentNames = new Set(currentStudents.map(s => s.name.trim().toLowerCase()));
+    
+    // Get names from import file
+    const importNames = new Set(result.records.map(r => r.studentName.trim().toLowerCase()));
+    
+    // Find new students (in file but not in roster)
+    const newStudentNames: string[] = [];
     for (const record of result.records) {
-      const student = findOrCreateStudent(record.studentName, classId);
-      const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
-      setAttendance(student.id, importMonth, percentage, false);
-      added++;
+      const normalizedName = record.studentName.trim().toLowerCase();
+      if (!currentNames.has(normalizedName)) {
+        newStudentNames.push(record.studentName.trim());
+      }
+    }
+    
+    // Find missing students (in roster but not in file)
+    const missingStudentsList: Student[] = [];
+    for (const student of currentStudents) {
+      const normalizedName = student.name.trim().toLowerCase();
+      if (!importNames.has(normalizedName)) {
+        missingStudentsList.push(student);
+      }
+    }
+    
+    // Store parsed data and move to review step
+    setParsedRecords(result.records);
+    setParseErrors(result.errors);
+    setNewStudents(newStudentNames.map(name => ({ name, selected: true })));
+    setMissingStudents(missingStudentsList.map(student => ({ student, selected: false })));
+    
+    setIsImporting(false);
+    setImportStep('review');
+  };
+
+  const handleConfirmImport = () => {
+    if (!currentClass) return;
+    
+    setIsImporting(true);
+    
+    // Add new students that were selected
+    const addedNewStudents: string[] = [];
+    for (const { name, selected } of newStudents) {
+      if (selected) {
+        createStudent(name, classId);
+        addedNewStudents.push(name);
+      }
+    }
+    
+    // Drop missing students that were selected
+    let droppedCount = 0;
+    for (const { student, selected } of missingStudents) {
+      if (selected) {
+        dropStudent(student.id);
+        droppedCount++;
+      }
+    }
+    
+    // Now import attendance for all students in the file
+    let added = 0;
+    for (const record of parsedRecords) {
+      const student = findStudentByName(record.studentName, classId);
+      if (student) {
+        const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
+        setAttendance(student.id, importMonth, percentage, false);
+        added++;
+      }
     }
 
     setImportResult({
       added,
-      errors: result.errors,
+      errors: parseErrors,
+      newStudentsAdded: addedNewStudents.length,
+      studentsDropped: droppedCount,
     });
 
     refreshData();
     setIsImporting(false);
+    resetImportModal();
+  };
+  
+  const resetImportModal = () => {
     setShowImportModal(false);
     setImportFile(null);
     setImportMonth('');
+    setImportStep('select-month');
+    setParsedRecords([]);
+    setParseErrors([]);
+    setNewStudents([]);
+    setMissingStudents([]);
   };
 
   const getColorClass = (percentage: number | null, isVacation: boolean) => {
@@ -256,6 +341,18 @@ export default function AttendancePage() {
               <p className="text-blue-800 mt-1">
                 Updated attendance for {importResult.added} students
               </p>
+              {importResult.newStudentsAdded > 0 && (
+                <p className="text-green-700 mt-1">
+                  <UserPlusIcon className="w-4 h-4 inline mr-1" />
+                  Added {importResult.newStudentsAdded} new student{importResult.newStudentsAdded !== 1 ? 's' : ''} to roster
+                </p>
+              )}
+              {importResult.studentsDropped > 0 && (
+                <p className="text-orange-700 mt-1">
+                  <UserMinusIcon className="w-4 h-4 inline mr-1" />
+                  Dropped {importResult.studentsDropped} student{importResult.studentsDropped !== 1 ? 's' : ''}
+                </p>
+              )}
               {importResult.errors.length > 0 && (
                 <div className="mt-2 text-red-700">
                   <ul className="list-disc list-inside text-sm">
@@ -399,48 +496,191 @@ export default function AttendancePage() {
 
       {/* Import Month Modal */}
       {showImportModal && (
-        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => resetImportModal()}>
+          <div className="modal max-w-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">Import Attendance</h2>
-              <button onClick={() => setShowImportModal(false)} className="p-1 hover:bg-gray-100 rounded">
+              <h2 className="text-xl font-semibold">
+                {importStep === 'select-month' ? 'Import Attendance' : 'Review Changes'}
+              </h2>
+              <button onClick={() => resetImportModal()} className="p-1 hover:bg-gray-100 rounded">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Which month is this attendance for?
-                </label>
-                <select
-                  value={importMonth}
-                  onChange={e => setImportMonth(e.target.value)}
-                  className="input"
-                >
-                  <option value="">Select month...</option>
-                  {MONTHS.map(({ key, label }) => (
-                    <option key={key} value={getMonthKey(key)}>
-                      {label} {parseInt(key) >= 8 ? selectedYear : selectedYear + 1}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <p className="text-sm text-gray-500">
-                File: {importFile?.name}
-              </p>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowImportModal(false)} className="btn btn-secondary flex-1">
-                Cancel
-              </button>
-              <button
-                onClick={handleImport}
-                disabled={!importMonth || isImporting}
-                className="btn btn-primary flex-1 disabled:opacity-50"
-              >
-                {isImporting ? 'Importing...' : 'Import'}
-              </button>
-            </div>
+            
+            {importStep === 'select-month' && (
+              <>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Which month is this attendance for?
+                    </label>
+                    <select
+                      value={importMonth}
+                      onChange={e => setImportMonth(e.target.value)}
+                      className="input"
+                    >
+                      <option value="">Select month...</option>
+                      {MONTHS.map(({ key, label }) => (
+                        <option key={key} value={getMonthKey(key)}>
+                          {label} {parseInt(key) >= 8 ? selectedYear : selectedYear + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    File: {importFile?.name}
+                  </p>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button onClick={() => resetImportModal()} className="btn btn-secondary flex-1">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAnalyzeImport}
+                    disabled={!importMonth || isImporting}
+                    className="btn btn-primary flex-1 disabled:opacity-50"
+                  >
+                    {isImporting ? 'Analyzing...' : 'Continue'}
+                  </button>
+                </div>
+              </>
+            )}
+            
+            {importStep === 'review' && (
+              <>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  {/* Summary */}
+                  <div className="text-sm text-gray-600">
+                    Found {parsedRecords.length} students in the file.
+                  </div>
+                  
+                  {/* New Students Section */}
+                  {newStudents.length > 0 && (
+                    <div className="border rounded-lg p-4 bg-green-50 border-green-200">
+                      <div className="flex items-center gap-2 mb-3">
+                        <UserPlusIcon className="w-5 h-5 text-green-600" />
+                        <h3 className="font-semibold text-green-800">
+                          New Students Detected ({newStudents.length})
+                        </h3>
+                      </div>
+                      <p className="text-sm text-green-700 mb-3">
+                        These names are in the file but not on your roster. Check the ones you want to add:
+                      </p>
+                      <div className="space-y-2">
+                        {newStudents.map((item, idx) => (
+                          <label key={idx} className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={item.selected}
+                              onChange={e => {
+                                const updated = [...newStudents];
+                                updated[idx].selected = e.target.checked;
+                                setNewStudents(updated);
+                              }}
+                              className="rounded border-green-400 text-green-600 focus:ring-green-500"
+                            />
+                            <span className="text-sm">{item.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => setNewStudents(newStudents.map(s => ({ ...s, selected: true })))}
+                          className="text-xs text-green-700 underline"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          onClick={() => setNewStudents(newStudents.map(s => ({ ...s, selected: false })))}
+                          className="text-xs text-green-700 underline"
+                        >
+                          Select none
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Missing Students Section */}
+                  {missingStudents.length > 0 && (
+                    <div className="border rounded-lg p-4 bg-orange-50 border-orange-200">
+                      <div className="flex items-center gap-2 mb-3">
+                        <ExclamationTriangleIcon className="w-5 h-5 text-orange-600" />
+                        <h3 className="font-semibold text-orange-800">
+                          Students Missing From File ({missingStudents.length})
+                        </h3>
+                      </div>
+                      <p className="text-sm text-orange-700 mb-3">
+                        These students are on your roster but not in this month's attendance. 
+                        Check the ones you want to drop:
+                      </p>
+                      <div className="space-y-2">
+                        {missingStudents.map((item, idx) => (
+                          <label key={item.student.id} className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={item.selected}
+                              onChange={e => {
+                                const updated = [...missingStudents];
+                                updated[idx].selected = e.target.checked;
+                                setMissingStudents(updated);
+                              }}
+                              className="rounded border-orange-400 text-orange-600 focus:ring-orange-500"
+                            />
+                            <span className="text-sm">{item.student.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => setMissingStudents(missingStudents.map(s => ({ ...s, selected: true })))}
+                          className="text-xs text-orange-700 underline"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          onClick={() => setMissingStudents(missingStudents.map(s => ({ ...s, selected: false })))}
+                          className="text-xs text-orange-700 underline"
+                        >
+                          Select none
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* No changes detected */}
+                  {newStudents.length === 0 && missingStudents.length === 0 && (
+                    <div className="text-center py-4 text-gray-600">
+                      <p>All students in the file match your current roster.</p>
+                    </div>
+                  )}
+                  
+                  {parseErrors.length > 0 && (
+                    <div className="text-red-600 text-sm">
+                      <p className="font-medium">Warnings:</p>
+                      <ul className="list-disc list-inside">
+                        {parseErrors.map((err, i) => <li key={i}>{err}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex gap-3 mt-6">
+                  <button 
+                    onClick={() => setImportStep('select-month')} 
+                    className="btn btn-secondary flex-1"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handleConfirmImport}
+                    disabled={isImporting}
+                    className="btn btn-primary flex-1 disabled:opacity-50"
+                  >
+                    {isImporting ? 'Importing...' : 'Import Attendance'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
