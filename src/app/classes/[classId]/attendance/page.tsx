@@ -177,14 +177,33 @@ export default function AttendancePage() {
     const currentStudents = getStudentsByClass(classId);
     const currentNames = new Set(currentStudents.map(s => s.name.trim().toLowerCase()));
     
+    // Check if this is a first-time import (empty roster)
+    const isFirstImport = currentStudents.length === 0;
+    
+    // Pre-calculate which students have zero attendance
+    const zeroAttendanceNames = new Set<string>();
+    for (const record of result.records) {
+      const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
+      if (percentage === 0) {
+        zeroAttendanceNames.add(record.studentName.trim().toLowerCase());
+      }
+    }
+    
     // Get names from import file
     const importNames = new Set(result.records.map(r => r.studentName.trim().toLowerCase()));
     
     // Find new students (in file but not in roster)
+    // On first import, silently skip any with 0% attendance
     const newStudentNames: string[] = [];
+    let skippedZeroAttendance = 0;
     for (const record of result.records) {
       const normalizedName = record.studentName.trim().toLowerCase();
       if (!currentNames.has(normalizedName)) {
+        // On first import, silently skip students with 0% attendance
+        if (isFirstImport && zeroAttendanceNames.has(normalizedName)) {
+          skippedZeroAttendance++;
+          continue;
+        }
         newStudentNames.push(record.studentName.trim());
       }
     }
@@ -198,15 +217,22 @@ export default function AttendancePage() {
       }
     }
     
-    // Find students with zero attendance
+    // Find students with zero attendance (only for EXISTING students, not new ones on first import)
     const zeroAttendanceList: { name: string; studentId?: string }[] = [];
     for (const record of result.records) {
       const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
       if (percentage === 0) {
+        const normalizedName = record.studentName.trim().toLowerCase();
         // Check if this is an existing student
         const existingStudent = currentStudents.find(
-          s => s.name.trim().toLowerCase() === record.studentName.trim().toLowerCase()
+          s => s.name.trim().toLowerCase() === normalizedName
         );
+        
+        // On first import, skip new students with 0% (they're already filtered out above)
+        if (isFirstImport && !existingStudent) {
+          continue;
+        }
+        
         zeroAttendanceList.push({
           name: record.studentName.trim(),
           studentId: existingStudent?.id,
@@ -214,9 +240,23 @@ export default function AttendancePage() {
       }
     }
     
+    // Filter parsed records to exclude zero-attendance new students on first import
+    const filteredRecords = isFirstImport 
+      ? result.records.filter(r => {
+          const normalizedName = r.studentName.trim().toLowerCase();
+          const isNew = !currentNames.has(normalizedName);
+          const hasZero = zeroAttendanceNames.has(normalizedName);
+          return !(isNew && hasZero); // Exclude new students with 0%
+        })
+      : result.records;
+    
     // Store parsed data and move to review step
-    setParsedRecords(result.records);
-    setParseErrors(result.errors);
+    setParsedRecords(filteredRecords);
+    setParseErrors(
+      skippedZeroAttendance > 0 
+        ? [...result.errors, `Skipped ${skippedZeroAttendance} student(s) with 0% attendance (first import)`]
+        : result.errors
+    );
     setNewStudents(newStudentNames.map(name => ({ name, selected: true })));
     setMissingStudents(missingStudentsList.map(student => ({ student, selected: false })));
     setZeroAttendanceStudents(zeroAttendanceList.map(item => ({ 
