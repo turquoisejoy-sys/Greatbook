@@ -10,7 +10,6 @@ import {
   addUnitTest,
   updateUnitTest,
   deleteUnitTest,
-  findOrCreateStudent,
   findStudentByName,
 } from '@/lib/storage';
 import { parseTestsFileFromInput } from '@/lib/parsers';
@@ -276,66 +275,9 @@ export default function UnitTestsPage() {
       fileInputRef.current.value = '';
     }
 
-    // Parse file first to check if it's multi-test format
-    setIsImporting(true);
-    const result = await parseTestsFileFromInput(file);
-    
-    if (result.errors.length > 0 && result.summary.totalRecords === 0) {
-      setImportResult({ added: 0, errors: result.errors, unmatchedFromImport: [], studentsWithoutScores: [] });
-      setIsImporting(false);
-      return;
-    }
-
-    // Get all existing students in this class
-    const existingStudents = getStudentsByClass(classId);
-
-    if (result.isMultiTest) {
-      // Multi-test format - import directly
-      let added = 0;
-      const importedIds: string[] = [];
-      const testsImported = new Set<string>();
-      const unmatchedFromImport: string[] = [];
-      const studentsWhoGotScores = new Set<string>();
-
-      for (const record of result.multiTestRecords) {
-        // Only match existing students - don't create new ones
-        const existingStudent = findStudentByName(record.studentName, classId);
-        
-        if (!existingStudent) {
-          unmatchedFromImport.push(record.studentName);
-          continue;
-        }
-        
-        studentsWhoGotScores.add(existingStudent.id);
-        const test = addUnitTest(existingStudent.id, record.testName, record.date, record.score);
-        if (test) {
-          added++;
-          importedIds.push(test.id);
-          testsImported.add(record.testName);
-        }
-      }
-
-      // Find students who didn't get any score from this import
-      const studentsWithoutScores = existingStudents
-        .filter(s => !studentsWhoGotScores.has(s.id))
-        .map(s => s.name);
-
-      setLastImportIds(importedIds);
-      setImportResult({
-        added,
-        testsImported: Array.from(testsImported),
-        errors: result.errors,
-        unmatchedFromImport: [...new Set(unmatchedFromImport)],
-        studentsWithoutScores,
-      });
-      refreshData();
-      setIsImporting(false);
-    } else {
-      // Single-test format - show modal to get test name
-      setImportFile(file);
-      setShowImportModal(true);
-      setIsImporting(false);
-    }
+    // Show modal to get test name
+    setImportFile(file);
+    setShowImportModal(true);
   };
 
   const handleImport = async () => {
