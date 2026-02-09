@@ -76,15 +76,15 @@ export default function AttendancePage() {
   const [editingCell, setEditingCell] = useState<{ studentId: string; month: string } | null>(null);
   const [editValue, setEditValue] = useState('');
   
-  // Import review state
-  const [importStep, setImportStep] = useState<'select-month' | 'review'>('select-month');
+  // Import review state - 3 steps: select-month -> review-zero -> review-new
+  const [importStep, setImportStep] = useState<'select-month' | 'review-zero' | 'review-new'>('select-month');
   const [parsedRecords, setParsedRecords] = useState<AttendanceImportRow[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [newStudents, setNewStudents] = useState<{ name: string; selected: boolean }[]>([]);
   const [missingStudents, setMissingStudents] = useState<{ student: Student; selected: boolean }[]>([]);
   const [zeroAttendanceStudents, setZeroAttendanceStudents] = useState<{ 
     name: string; 
-    action: 'record' | 'vacation' | 'drop';
+    action: 'record' | 'vacation' | 'drop' | 'ignore';
     studentId?: string;
   }[]>([]);
 
@@ -192,8 +192,8 @@ export default function AttendancePage() {
     // Get names from import file
     const importNames = new Set(result.records.map(r => r.studentName.trim().toLowerCase()));
     
-    // Find new students (in file but not in roster)
-    // On first import, silently skip any with 0% attendance
+    // Find new students (in file but not in roster) WHO HAVE ACTUAL ATTENDANCE
+    // New students with 0% attendance will be shown in the zero attendance step instead
     const newStudentNames: string[] = [];
     let skippedZeroAttendance = 0;
     for (const record of result.records) {
@@ -202,6 +202,10 @@ export default function AttendancePage() {
         // On first import, silently skip students with 0% attendance
         if (isFirstImport && zeroAttendanceNames.has(normalizedName)) {
           skippedZeroAttendance++;
+          continue;
+        }
+        // New students with 0% go to zero attendance step, not here
+        if (zeroAttendanceNames.has(normalizedName)) {
           continue;
         }
         newStudentNames.push(record.studentName.trim());
@@ -250,13 +254,14 @@ export default function AttendancePage() {
         })
       : result.records;
     
-    // Store parsed data and move to review step
+    // Store parsed data
     setParsedRecords(filteredRecords);
     setParseErrors(
       skippedZeroAttendance > 0 
         ? [...result.errors, `Skipped ${skippedZeroAttendance} student(s) with 0% attendance (first import)`]
         : result.errors
     );
+    // Store ALL new student names (we'll filter out ignored ones later)
     setNewStudents(newStudentNames.map(name => ({ name, selected: true })));
     setMissingStudents(missingStudentsList.map(student => ({ student, selected: false })));
     setZeroAttendanceStudents(zeroAttendanceList.map(item => ({ 
@@ -265,7 +270,30 @@ export default function AttendancePage() {
     })));
     
     setIsImporting(false);
-    setImportStep('review');
+    
+    // Determine which step to go to
+    if (zeroAttendanceList.length > 0) {
+      // Has zero attendance students - show that step first
+      setImportStep('review-zero');
+    } else if (newStudentNames.length > 0 || missingStudentsList.length > 0) {
+      // No zero attendance, but has new/missing students
+      setImportStep('review-new');
+    } else {
+      // Nothing to review - go straight to import
+      handleConfirmImport();
+    }
+  };
+  
+  // Move from zero attendance step to new students step (or import if nothing left)
+  const handleZeroAttendanceNext = () => {
+    // Check if there's anything to show in the next step
+    // (new students with actual attendance, or missing students)
+    if (newStudents.length > 0 || missingStudents.length > 0) {
+      setImportStep('review-new');
+    } else {
+      // Nothing left to review - import directly
+      handleConfirmImport();
+    }
   };
 
   const handleConfirmImport = () => {
@@ -274,23 +302,32 @@ export default function AttendancePage() {
     setIsImporting(true);
     
     // Build a map of zero attendance actions first (needed to check before adding new students)
-    const zeroAttendanceActions = new Map<string, 'record' | 'vacation' | 'drop'>();
+    const zeroAttendanceActions = new Map<string, 'record' | 'vacation' | 'drop' | 'ignore'>();
     for (const item of zeroAttendanceStudents) {
       zeroAttendanceActions.set(item.name.trim().toLowerCase(), item.action);
     }
     
-    // Add new students that were selected (but skip if they're marked for drop due to 0% attendance)
+    // Add new students that were selected (but skip if they're marked for drop or ignore)
     const addedNewStudents: string[] = [];
     for (const { name, selected } of newStudents) {
       if (selected) {
         const normalizedName = name.trim().toLowerCase();
         const zeroAction = zeroAttendanceActions.get(normalizedName);
-        // Don't add if this new student has 0% attendance and is marked for drop
-        if (zeroAction === 'drop') {
+        // Don't add if this student is marked for drop or ignore
+        if (zeroAction === 'drop' || zeroAction === 'ignore') {
           continue;
         }
         createStudent(name, classId);
         addedNewStudents.push(name);
+      }
+    }
+    
+    // Also add NEW students with 0% attendance who are marked for 'record' or 'vacation'
+    // (these aren't in newStudents list since they have 0% attendance)
+    for (const item of zeroAttendanceStudents) {
+      if (!item.studentId && (item.action === 'record' || item.action === 'vacation')) {
+        createStudent(item.name, classId);
+        addedNewStudents.push(item.name);
       }
     }
     
@@ -315,16 +352,17 @@ export default function AttendancePage() {
     let added = 0;
     let vacationCount = 0;
     for (const record of parsedRecords) {
+      const normalizedName = record.studentName.trim().toLowerCase();
+      const zeroAction = zeroAttendanceActions.get(normalizedName);
+      
+      // Skip if this student was marked for drop or ignore
+      if (zeroAction === 'drop' || zeroAction === 'ignore') {
+        continue;
+      }
+      
       const student = findStudentByName(record.studentName, classId);
       if (student) {
         const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
-        const normalizedName = record.studentName.trim().toLowerCase();
-        const zeroAction = zeroAttendanceActions.get(normalizedName);
-        
-        // Skip if this student was marked for drop
-        if (zeroAction === 'drop') {
-          continue;
-        }
         
         // Mark as vacation if that action was selected
         if (percentage === 0 && zeroAction === 'vacation') {
@@ -610,7 +648,9 @@ export default function AttendancePage() {
           <div className="modal max-w-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">
-                {importStep === 'select-month' ? 'Import Attendance' : 'Review Changes'}
+                {importStep === 'select-month' && 'Import Attendance'}
+                {importStep === 'review-zero' && 'Zero Attendance Review'}
+                {importStep === 'review-new' && 'Review Roster Changes'}
               </h2>
               <button onClick={() => resetImportModal()} className="p-1 hover:bg-gray-100 rounded">
                 <XMarkIcon className="w-5 h-5" />
@@ -656,12 +696,111 @@ export default function AttendancePage() {
               </>
             )}
             
-            {importStep === 'review' && (
+            {/* Step 1: Zero Attendance Review */}
+            {importStep === 'review-zero' && (
               <>
                 <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {/* Summary */}
                   <div className="text-sm text-gray-600">
-                    Found {parsedRecords.length} students in the file.
+                    Step 1 of 2: Review students with zero attendance
+                  </div>
+                  
+                  <div className="border rounded-lg p-4 bg-purple-50 border-purple-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <MinusCircleIcon className="w-5 h-5 text-purple-600" />
+                      <h3 className="font-semibold text-purple-800">
+                        Zero Attendance ({zeroAttendanceStudents.length})
+                      </h3>
+                    </div>
+                    <p className="text-sm text-purple-700 mb-3">
+                      These students have 0% attendance this month. What would you like to do?
+                    </p>
+                    <div className="space-y-3">
+                      {zeroAttendanceStudents.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between gap-3 py-2 border-b border-purple-200 last:border-0">
+                          <div className="flex-1">
+                            <span className="text-sm font-medium">{item.name}</span>
+                            {!item.studentId && (
+                              <span className="ml-2 text-xs text-purple-500">(new)</span>
+                            )}
+                          </div>
+                          <select
+                            value={item.action}
+                            onChange={e => {
+                              const updated = [...zeroAttendanceStudents];
+                              updated[idx].action = e.target.value as 'record' | 'vacation' | 'drop' | 'ignore';
+                              setZeroAttendanceStudents(updated);
+                            }}
+                            className="text-sm rounded border-purple-300 bg-white focus:ring-purple-500 focus:border-purple-500"
+                          >
+                            <option value="record">Record 0%</option>
+                            <option value="vacation">Mark as vacation</option>
+                            <option value="drop">Drop student</option>
+                            <option value="ignore">Ignore (don't import)</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                      <button
+                        onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'record' })))}
+                        className="text-purple-700 underline"
+                      >
+                        All: Record 0%
+                      </button>
+                      <button
+                        onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'vacation' })))}
+                        className="text-purple-700 underline"
+                      >
+                        All: Vacation
+                      </button>
+                      <button
+                        onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'drop' })))}
+                        className="text-purple-700 underline"
+                      >
+                        All: Drop
+                      </button>
+                      <button
+                        onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'ignore' })))}
+                        className="text-purple-700 underline"
+                      >
+                        All: Ignore
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {parseErrors.length > 0 && (
+                    <div className="text-red-600 text-sm">
+                      <p className="font-medium">Warnings:</p>
+                      <ul className="list-disc list-inside">
+                        {parseErrors.map((err, i) => <li key={i}>{err}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex gap-3 mt-6">
+                  <button 
+                    onClick={() => setImportStep('select-month')} 
+                    className="btn btn-secondary flex-1"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handleZeroAttendanceNext}
+                    className="btn btn-primary flex-1"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </>
+            )}
+            
+            {/* Step 2: New/Missing Students Review */}
+            {importStep === 'review-new' && (
+              <>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  <div className="text-sm text-gray-600">
+                    {zeroAttendanceStudents.length > 0 ? 'Step 2 of 2: ' : ''}Review roster changes
                   </div>
                   
                   {/* New Students Section */}
@@ -674,7 +813,7 @@ export default function AttendancePage() {
                         </h3>
                       </div>
                       <p className="text-sm text-green-700 mb-3">
-                        These names are in the file but not on your roster. Check the ones you want to add:
+                        These students have attendance this month but are not on your roster. Check the ones you want to add:
                       </p>
                       <div className="space-y-2">
                         {newStudents.map((item, idx) => (
@@ -757,65 +896,10 @@ export default function AttendancePage() {
                     </div>
                   )}
                   
-                  {/* Zero Attendance Section */}
-                  {zeroAttendanceStudents.length > 0 && (
-                    <div className="border rounded-lg p-4 bg-purple-50 border-purple-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <MinusCircleIcon className="w-5 h-5 text-purple-600" />
-                        <h3 className="font-semibold text-purple-800">
-                          Zero Attendance ({zeroAttendanceStudents.length})
-                        </h3>
-                      </div>
-                      <p className="text-sm text-purple-700 mb-3">
-                        These students have 0% attendance this month. What would you like to do?
-                      </p>
-                      <div className="space-y-3">
-                        {zeroAttendanceStudents.map((item, idx) => (
-                          <div key={idx} className="flex items-center justify-between gap-3 py-2 border-b border-purple-200 last:border-0">
-                            <span className="text-sm font-medium">{item.name}</span>
-                            <select
-                              value={item.action}
-                              onChange={e => {
-                                const updated = [...zeroAttendanceStudents];
-                                updated[idx].action = e.target.value as 'record' | 'vacation' | 'drop';
-                                setZeroAttendanceStudents(updated);
-                              }}
-                              className="text-sm rounded border-purple-300 bg-white focus:ring-purple-500 focus:border-purple-500"
-                            >
-                              <option value="record">Record 0%</option>
-                              <option value="vacation">Mark as vacation</option>
-                              <option value="drop">Drop student</option>
-                            </select>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex gap-2 text-xs">
-                        <button
-                          onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'record' })))}
-                          className="text-purple-700 underline"
-                        >
-                          All: Record 0%
-                        </button>
-                        <button
-                          onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'vacation' })))}
-                          className="text-purple-700 underline"
-                        >
-                          All: Vacation
-                        </button>
-                        <button
-                          onClick={() => setZeroAttendanceStudents(zeroAttendanceStudents.map(s => ({ ...s, action: 'drop' })))}
-                          className="text-purple-700 underline"
-                        >
-                          All: Drop
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* No changes detected */}
-                  {newStudents.length === 0 && missingStudents.length === 0 && zeroAttendanceStudents.length === 0 && (
+                  {/* No changes in this step */}
+                  {newStudents.length === 0 && missingStudents.length === 0 && (
                     <div className="text-center py-4 text-gray-600">
-                      <p>All students in the file match your current roster.</p>
+                      <p>No roster changes needed. Ready to import attendance.</p>
                     </div>
                   )}
                   
@@ -831,7 +915,7 @@ export default function AttendancePage() {
                 
                 <div className="flex gap-3 mt-6">
                   <button 
-                    onClick={() => setImportStep('select-month')} 
+                    onClick={() => zeroAttendanceStudents.length > 0 ? setImportStep('review-zero') : setImportStep('select-month')} 
                     className="btn btn-secondary flex-1"
                   >
                     Back
