@@ -41,10 +41,10 @@ export default function Sidebar({ currentClassId, currentClassName, syncStatus =
     { href: `${classBasePath}/students`, label: 'Students', icon: UserGroupIcon },
     { href: `${classBasePath}/notes`, label: 'Notes', icon: PencilSquareIcon },
     { href: `${classBasePath}/isst`, label: 'ISST', icon: ClockIcon },
+    { href: `${classBasePath}/attendance`, label: 'Attendance', icon: CalendarDaysIcon },
     { href: `${classBasePath}/casas-reading`, label: 'CASAS Reading', icon: AcademicCapIcon },
     { href: `${classBasePath}/casas-listening`, label: 'CASAS Listening', icon: AcademicCapIcon },
     { href: `${classBasePath}/tests`, label: 'Unit Tests', icon: ClipboardDocumentListIcon },
-    { href: `${classBasePath}/attendance`, label: 'Attendance', icon: CalendarDaysIcon },
     { href: `${classBasePath}/analysis`, label: 'Analysis', icon: ChartBarIcon },
     { href: `${classBasePath}/report-cards`, label: 'Report Cards', icon: DocumentTextIcon },
   ] : [];
