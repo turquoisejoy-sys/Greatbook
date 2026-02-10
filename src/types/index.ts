@@ -141,9 +141,11 @@ export interface ArchivedYear {
 export interface StudentWithStats extends Student {
   casasReadingAvg: number | null;
   casasReadingLast: number | null;  // Most recent score
+  casasReadingHighest: number | null;  // Highest score (used for progress)
   casasReadingProgress: number | null;
   casasListeningAvg: number | null;
   casasListeningLast: number | null;  // Most recent score
+  casasListeningHighest: number | null;  // Highest score (used for progress)
   casasListeningProgress: number | null;
   testAverage: number | null;
   attendanceAverage: number | null;

@@ -198,7 +198,9 @@ export default function StudentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Students</h1>
-          <p className="text-gray-600">{currentClass.name} • {currentClass.schedule}</p>
+          <p className="text-gray-600">
+            {currentClass.name} • {currentClass.schedule} • <span className="font-medium">{students.length} enrolled</span>
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <input

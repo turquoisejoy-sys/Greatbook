@@ -267,20 +267,20 @@ export default function ReportCardsPage() {
     window.print();
   };
 
-  const getProgressColor = (progress: number | null) => {
-    if (progress === null) return 'bg-gray-200';
-    if (progress >= 100) return 'bg-green-500';
-    if (progress >= 80) return 'bg-green-400';
-    if (progress >= 60) return 'bg-yellow-400';
-    return 'bg-red-400';
-  };
-
   const getScoreStatus = (score: number | null) => {
     if (score === null) return { label: 'No Data', color: 'text-gray-500' };
     if (score >= 90) return { label: 'Excellent', color: 'text-green-600' };
     if (score >= 80) return { label: 'Good', color: 'text-green-500' };
     if (score >= 70) return { label: 'Satisfactory', color: 'text-yellow-600' };
     return { label: 'Needs Improvement', color: 'text-red-500' };
+  };
+
+  // Get background color class for score cells
+  const getScoreBgColor = (score: number | null) => {
+    if (score === null) return '';
+    if (score >= 80) return 'bg-green-100 text-green-800';
+    if (score >= 60) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-red-100 text-red-800';
   };
 
   if (!mounted) {
@@ -416,7 +416,7 @@ export default function ReportCardsPage() {
             <h2 className="text-2xl font-bold text-[var(--cace-navy)]">
               Campbell Adult and Community Education
             </h2>
-            <p className="text-[var(--cace-teal)] font-medium">Student Progress Report Card</p>
+            <p className="text-[var(--cace-teal)] font-medium">Student Progress Report</p>
             <p className="text-gray-600 mt-1">{periodName}</p>
           </div>
 
@@ -501,55 +501,19 @@ export default function ReportCardsPage() {
             </div>
           </div>
 
-          {/* Unit Tests & Attendance - Progress Bars */}
-          <div className="mb-6">
-            <div className="grid grid-cols-2 gap-4">
-              {/* Test Average */}
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>Unit Tests</span>
-                  <span className={`font-medium ${getScoreStatus(displayData.testAverage).color}`}>
-                    {displayData.testAverage !== null ? `${displayData.testAverage.toFixed(0)}%` : '—'}
-                  </span>
-                </div>
-                <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full ${getProgressColor(displayData.testAverage)} transition-all`}
-                    style={{ width: `${displayData.testAverage || 0}%` }}
-                  ></div>
-                </div>
-                <p className={`text-xs mt-1 ${getScoreStatus(displayData.testAverage).color}`}>
-                  {getScoreStatus(displayData.testAverage).label}
-                </p>
-              </div>
-
-              {/* Attendance */}
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>Attendance</span>
-                  <span className={`font-medium ${getScoreStatus(displayData.attendanceAverage).color}`}>
-                    {displayData.attendanceAverage !== null ? `${displayData.attendanceAverage.toFixed(0)}%` : '—'}
-                  </span>
-                </div>
-                <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full ${getProgressColor(displayData.attendanceAverage)} transition-all`}
-                    style={{ width: `${displayData.attendanceAverage || 0}%` }}
-                  ></div>
-                </div>
-                <p className={`text-xs mt-1 ${getScoreStatus(displayData.attendanceAverage).color}`}>
-                  {getScoreStatus(displayData.attendanceAverage).label}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Detailed Scores - Only show for new cards, not past snapshots */}
+          {/* Unit Tests & Attendance - Detailed Scores */}
           {!viewingPastCard && (
             <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
               {/* Unit Tests */}
               <div>
-                <h4 className="font-semibold text-[var(--cace-navy)] mb-2">Unit Tests</h4>
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="font-semibold text-[var(--cace-navy)]">Unit Tests</h4>
+                  {displayData.testAverage !== null && (
+                    <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.testAverage)}`}>
+                      Avg: {displayData.testAverage.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
                 {unitTests.length === 0 ? (
                   <p className="text-gray-400 text-xs">No tests recorded</p>
                 ) : (
@@ -564,7 +528,11 @@ export default function ReportCardsPage() {
                       {unitTests.slice(0, 8).map(test => (
                         <tr key={test.id} className="border-b border-gray-100">
                           <td className="py-1">{test.testName}</td>
-                          <td className="py-1 text-right">{test.score}%</td>
+                          <td className="py-1 text-right">
+                            <span className={`px-1.5 py-0.5 rounded ${getScoreBgColor(test.score)}`}>
+                              {test.score}%
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -574,7 +542,14 @@ export default function ReportCardsPage() {
 
               {/* Monthly Attendance */}
               <div>
-                <h4 className="font-semibold text-[var(--cace-navy)] mb-2">Monthly Attendance</h4>
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="font-semibold text-[var(--cace-navy)]">Monthly Attendance</h4>
+                  {displayData.attendanceAverage !== null && (
+                    <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.attendanceAverage)}`}>
+                      Avg: {displayData.attendanceAverage.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
                 {attendance.length === 0 ? (
                   <p className="text-gray-400 text-xs">No attendance recorded</p>
                 ) : (
@@ -587,7 +562,7 @@ export default function ReportCardsPage() {
                       const monthName = monthNames[parseInt(monthNum, 10) - 1] || monthNum;
                       
                       return (
-                        <div key={a.id} className="flex justify-between px-2 py-1 bg-gray-50 rounded">
+                        <div key={a.id} className={`flex justify-between px-2 py-1 rounded ${a.isVacation ? 'bg-gray-100' : getScoreBgColor(a.percentage)}`}>
                           <span className="font-medium">{monthName}</span>
                           <span className={a.isVacation ? 'text-gray-400 italic' : ''}>
                             {a.isVacation ? 'Out' : `${a.percentage.toFixed(0)}%`}
@@ -613,10 +588,6 @@ export default function ReportCardsPage() {
             />
           </div>
 
-          {/* Footer */}
-          <div className="mt-6 pt-4 border-t text-center text-sm text-gray-500 print:mt-8">
-            <p className="italic">"A World of Opportunity"</p>
-          </div>
 
           {/* Save Button - Hidden when printing */}
           <div className="mt-4 pt-4 border-t flex items-center gap-3 print:hidden">

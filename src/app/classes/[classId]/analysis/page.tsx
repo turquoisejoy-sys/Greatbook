@@ -318,7 +318,7 @@ export default function AnalysisPage() {
                             {student.casasReadingProgress >= 100 ? 'GOAL!' : `${student.casasReadingProgress.toFixed(0)}%`}
                           </span>
                           <div className="text-xs text-gray-400 mt-0.5">
-                            avg: {student.casasReadingAvg?.toFixed(0)}
+                            {student.casasReadingHighest?.toFixed(0)}
                           </div>
                         </div>
                       ) : (
@@ -332,7 +332,7 @@ export default function AnalysisPage() {
                             {student.casasListeningProgress >= 100 ? 'GOAL!' : `${student.casasListeningProgress.toFixed(0)}%`}
                           </span>
                           <div className="text-xs text-gray-400 mt-0.5">
-                            avg: {student.casasListeningAvg?.toFixed(0)}
+                            {student.casasListeningHighest?.toFixed(0)}
                           </div>
                         </div>
                       ) : (
@@ -421,11 +421,11 @@ export default function AnalysisPage() {
         <div className="text-sm text-gray-600 grid grid-cols-2 gap-4">
           <div>
             <p><strong>Reading:</strong> {currentClass.casasReadingLevelStart} → {currentClass.casasReadingTarget}</p>
-            <p className="text-xs text-gray-400">Progress = (Avg - {currentClass.casasReadingLevelStart}) ÷ {currentClass.casasReadingTarget - currentClass.casasReadingLevelStart} × 100</p>
+            <p className="text-xs text-gray-400">Progress = (Highest - {currentClass.casasReadingLevelStart}) ÷ {currentClass.casasReadingTarget - currentClass.casasReadingLevelStart} × 100</p>
           </div>
           <div>
             <p><strong>Listening:</strong> {currentClass.casasListeningLevelStart} → {currentClass.casasListeningTarget}</p>
-            <p className="text-xs text-gray-400">Progress = (Avg - {currentClass.casasListeningLevelStart}) ÷ {currentClass.casasListeningTarget - currentClass.casasListeningLevelStart} × 100</p>
+            <p className="text-xs text-gray-400">Progress = (Highest - {currentClass.casasListeningLevelStart}) ÷ {currentClass.casasListeningTarget - currentClass.casasListeningLevelStart} × 100</p>
           </div>
         </div>
       </div>

@@ -13,7 +13,7 @@ import {
   findOrCreateStudent,
 } from '@/lib/storage';
 import { parseCASASFileFromInput } from '@/lib/parsers';
-import { calculateCASASAverage, calculateCASASProgress, getColorLevel, compareByLastName } from '@/lib/calculations';
+import { calculateCASASAverage, calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
 import {
   ArrowUpTrayIcon,
@@ -25,6 +25,7 @@ interface StudentWithTests {
   student: Student;
   tests: CASASTest[];
   average: number | null;
+  highest: number | null;
   progress: number | null;
 }
 
@@ -70,12 +71,14 @@ export default function CASASListeningPage() {
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       maxTestCount = Math.max(maxTestCount, tests.length);
       const average = calculateCASASAverage(tests);
+      const highest = getHighestCASASScore(tests);
+      // Progress uses HIGHEST score (for level-up determination)
       const progress = calculateCASASProgress(
-        average,
+        highest,
         cls.casasListeningLevelStart,
         cls.casasListeningTarget
       );
-      return { student, tests, average, progress };
+      return { student, tests, average, highest, progress };
     });
     
     data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
@@ -257,12 +260,13 @@ export default function CASASListeningPage() {
               </tr>
             </thead>
             <tbody>
-              {studentsWithTests.map(({ student, tests, average, progress }) => (
+              {studentsWithTests.map(({ student, tests, average, highest, progress }) => (
                 <tr key={student.id}>
                   <td className="sticky left-0 bg-white font-medium z-10">{student.name}</td>
                   {testColumns.map((_, idx) => {
                     const test = tests[idx] || null;
                     const isEditing = editingCell?.studentId === student.id && editingCell?.testIndex === idx;
+                    const isHighest = test?.score !== null && test?.score === highest;
                     
                     if (isEditing) {
                       return (
@@ -327,7 +331,7 @@ export default function CASASListeningPage() {
                           {test?.formNumber || '—'}
                         </td>
                         <td 
-                          className={`text-center text-xs cursor-pointer hover:bg-gray-50 ${test?.score ? getScoreColor(test.score) : ''}`}
+                          className={`text-center text-xs cursor-pointer hover:bg-gray-50 ${test?.score ? getScoreColor(test.score) : ''} ${isHighest ? 'font-bold' : ''}`}
                           onClick={() => startEdit(student.id, idx, test)}
                         >
                           {test?.score ?? '—'}
@@ -353,8 +357,12 @@ export default function CASASListeningPage() {
       )}
 
       {/* Legend */}
-      <div className="flex items-center gap-6 text-sm text-gray-600">
-        <span className="text-gray-500">Click any cell to edit • Progress = (Avg - {currentClass.casasListeningLevelStart}) ÷ {currentClass.casasListeningTarget - currentClass.casasListeningLevelStart} × 100</span>
+      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+        <span><strong className="font-bold">Bold</strong> = Highest score (used for progress)</span>
+        <span className="text-gray-400">|</span>
+        <span>Progress = (Highest - {currentClass.casasListeningLevelStart}) ÷ {currentClass.casasListeningTarget - currentClass.casasListeningLevelStart} × 100</span>
+        <span className="text-gray-400">|</span>
+        <span className="text-gray-500">Click any cell to edit</span>
       </div>
     </div>
   );
