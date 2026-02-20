@@ -30,6 +30,9 @@ const STORAGE_KEYS = {
   currentClassId: 'gradebook_current_class_id',
   isstRecords: 'gradebook_isst_records',
   studentNotes: 'gradebook_student_notes',
+  /** IDs of classes/user-deleted so cloud sync does not re-add them */
+  deletedClassIds: 'gradebook_deleted_class_ids',
+  deletedStudentIds: 'gradebook_deleted_student_ids',
 } as const;
 
 // ============================================
@@ -99,7 +102,19 @@ export async function syncFromCloud(): Promise<boolean> {
     const localReportCards = getFromStorage<ReportCard[]>(STORAGE_KEYS.reportCards, []);
     const localStudentNotes = getFromStorage<StudentNote[]>(STORAGE_KEYS.studentNotes, []);
     const localISSTRecords = getFromStorage<ISSTRecord[]>(STORAGE_KEYS.isstRecords, []);
-    
+
+    // Don't re-add classes/students the user deleted (cloud may still have them if delete failed)
+    const deletedClassIds = new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedClassIds, []));
+    const deletedStudentIds = new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedStudentIds, []));
+    const cloudClassesFiltered = cloudData.classes.filter(c => !deletedClassIds.has(c.id));
+    const cloudStudentsFiltered = cloudData.students.filter(s => !deletedStudentIds.has(s.id));
+    const cloudCasasFiltered = cloudData.casasTests.filter(t => !deletedStudentIds.has(t.studentId));
+    const cloudUnitTestsFiltered = cloudData.unitTests.filter(t => !deletedStudentIds.has(t.studentId));
+    const cloudAttendanceFiltered = cloudData.attendance.filter(a => !deletedStudentIds.has(a.studentId));
+    const cloudReportCardsFiltered = cloudData.reportCards.filter(r => !deletedStudentIds.has(r.studentId));
+    const cloudStudentNotesFiltered = cloudData.studentNotes.filter(n => !deletedStudentIds.has(n.studentId));
+    const cloudISSTFiltered = cloudData.isstRecords.filter(r => !deletedStudentIds.has(r.studentId));
+
     // Merge function: combine local and cloud, prefer newer by updatedAt/createdAt
     function mergeArrays<T extends { id: string; updatedAt?: string; createdAt?: string }>(
       local: T[],
@@ -128,15 +143,15 @@ export async function syncFromCloud(): Promise<boolean> {
       return Array.from(merged.values());
     }
     
-    // Merge all data
-    const mergedClasses = mergeArrays(localClasses, cloudData.classes);
-    const mergedStudents = mergeArrays(localStudents, cloudData.students);
-    const mergedCasasTests = mergeArrays(localCasasTests, cloudData.casasTests);
-    const mergedUnitTests = mergeArrays(localUnitTests, cloudData.unitTests);
-    const mergedAttendance = mergeArrays(localAttendance, cloudData.attendance);
-    const mergedReportCards = mergeArrays(localReportCards, cloudData.reportCards);
-    const mergedStudentNotes = mergeArrays(localStudentNotes, cloudData.studentNotes);
-    const mergedISSTRecords = mergeArrays(localISSTRecords, cloudData.isstRecords);
+    // Merge all data (use filtered cloud so deleted classes/students don't come back)
+    const mergedClasses = mergeArrays(localClasses, cloudClassesFiltered);
+    const mergedStudents = mergeArrays(localStudents, cloudStudentsFiltered);
+    const mergedCasasTests = mergeArrays(localCasasTests, cloudCasasFiltered);
+    const mergedUnitTests = mergeArrays(localUnitTests, cloudUnitTestsFiltered);
+    const mergedAttendance = mergeArrays(localAttendance, cloudAttendanceFiltered);
+    const mergedReportCards = mergeArrays(localReportCards, cloudReportCardsFiltered);
+    const mergedStudentNotes = mergeArrays(localStudentNotes, cloudStudentNotesFiltered);
+    const mergedISSTRecords = mergeArrays(localISSTRecords, cloudISSTFiltered);
     
     // Save merged data to local storage
     saveToStorage(STORAGE_KEYS.classes, mergedClasses);
@@ -281,37 +296,45 @@ export function deleteClass(classId: string): void {
   // Get students in this class before deleting (need their IDs for cloud cleanup)
   const studentsToDelete = getStudents().filter(s => s.classId === classId);
   const studentIdsToDelete = new Set(studentsToDelete.map(s => s.id));
-  
+
+  // Record deleted IDs so cloud sync won't re-add them (e.g. if cloud delete fails or RLS blocks it)
+  const deletedClassIds = new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedClassIds, []));
+  const deletedStudentIds = new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedStudentIds, []));
+  deletedClassIds.add(classId);
+  studentsToDelete.forEach(s => deletedStudentIds.add(s.id));
+  saveToStorage(STORAGE_KEYS.deletedClassIds, Array.from(deletedClassIds));
+  saveToStorage(STORAGE_KEYS.deletedStudentIds, Array.from(deletedStudentIds));
+
   // Delete from local storage
   const classes = getClasses().filter(c => c.id !== classId);
   saveClasses(classes);
-  
+
   // Also delete all students in this class
   const students = getStudents().filter(s => s.classId !== classId);
   saveStudents(students);
-  
+
   // Delete all related data for these students
   const casasTests = getCASASTests().filter(t => !studentIdsToDelete.has(t.studentId));
   saveCASASTests(casasTests);
-  
+
   const unitTests = getUnitTests().filter(t => !studentIdsToDelete.has(t.studentId));
   saveUnitTests(unitTests);
-  
+
   const attendance = getAttendance().filter(a => !studentIdsToDelete.has(a.studentId));
   saveAttendance(attendance);
-  
+
   const reportCards = getReportCards().filter(r => !studentIdsToDelete.has(r.studentId));
   saveReportCards(reportCards);
-  
+
   const isstRecords = getISSTRecords().filter(r => !studentIdsToDelete.has(r.studentId));
   saveISSTRecords(isstRecords);
-  
+
   const studentNotes = getStudentNotes().filter(n => !studentIdsToDelete.has(n.studentId));
   saveStudentNotes(studentNotes);
-  
+
   // Delete from cloud (async, fire and forget)
   deleteFromCloud('classes', classId).catch(err => console.error('Failed to delete class from cloud:', err));
-  
+
   // Delete students and their data from cloud
   for (const student of studentsToDelete) {
     deleteFromCloud('students', student.id).catch(err => console.error('Failed to delete student from cloud:', err));

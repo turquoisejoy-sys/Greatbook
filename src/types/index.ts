@@ -219,6 +219,8 @@ export interface AttendanceImportRow {
   studentName: string;
   totalHours: number;
   scheduledHours: number;
+  /** Optional status from file (e.g. "DROPPED") - used to auto-ignore dropped + zero hours */
+  status?: string;
 }
 
 export interface UnitTestImportRow {

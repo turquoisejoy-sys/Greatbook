@@ -173,7 +173,14 @@ export default function AttendancePage() {
 
     setIsImporting(true);
     const result = await parseAttendanceFileFromInput(importFile);
-    
+
+    // Auto-ignore: DROPPED + zero hours — don't ask about them, don't import
+    const isDroppedZero = (r: AttendanceImportRow) => {
+      const pct = calculateAttendancePercentage(r.totalHours, r.scheduledHours);
+      const dropped = r.status && /dropped/i.test(r.status);
+      return pct === 0 && dropped;
+    };
+
     // Get current roster
     const currentStudents = getStudentsByClass(classId);
     const currentNames = new Set(currentStudents.map(s => s.name.trim().toLowerCase()));
@@ -181,23 +188,28 @@ export default function AttendancePage() {
     // Check if this is a first-time import (empty roster)
     const isFirstImport = currentStudents.length === 0;
     
-    // Pre-calculate which students have zero attendance
+    // Pre-calculate which students have zero attendance (excluding auto-ignored dropped+zero)
     const zeroAttendanceNames = new Set<string>();
     for (const record of result.records) {
+      if (isDroppedZero(record)) continue;
       const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
       if (percentage === 0) {
         zeroAttendanceNames.add(record.studentName.trim().toLowerCase());
       }
     }
     
-    // Get names from import file
-    const importNames = new Set(result.records.map(r => r.studentName.trim().toLowerCase()));
+    // Get names from import file (excluding auto-ignored so they don't affect "missing")
+    const importNames = new Set(
+      result.records.filter(r => !isDroppedZero(r)).map(r => r.studentName.trim().toLowerCase())
+    );
     
     // Find new students (in file but not in roster) WHO HAVE ACTUAL ATTENDANCE
     // New students with 0% attendance will be shown in the zero attendance step instead
+    // Auto-ignored (DROPPED + zero) are never added
     const newStudentNames: string[] = [];
     let skippedZeroAttendance = 0;
     for (const record of result.records) {
+      if (isDroppedZero(record)) continue;
       const normalizedName = record.studentName.trim().toLowerCase();
       if (!currentNames.has(normalizedName)) {
         // On first import, silently skip students with 0% attendance
@@ -222,22 +234,17 @@ export default function AttendancePage() {
       }
     }
     
-    // Find students with zero attendance (only for EXISTING students, not new ones on first import)
+    // Find students with zero attendance — exclude auto-ignored (DROPPED + zero)
     const zeroAttendanceList: { name: string; studentId?: string }[] = [];
     for (const record of result.records) {
+      if (isDroppedZero(record)) continue;
       const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
       if (percentage === 0) {
         const normalizedName = record.studentName.trim().toLowerCase();
-        // Check if this is an existing student
         const existingStudent = currentStudents.find(
           s => s.name.trim().toLowerCase() === normalizedName
         );
-        
-        // On first import, skip new students with 0% (they're already filtered out above)
-        if (isFirstImport && !existingStudent) {
-          continue;
-        }
-        
+        if (isFirstImport && !existingStudent) continue;
         zeroAttendanceList.push({
           name: record.studentName.trim(),
           studentId: existingStudent?.id,
@@ -245,22 +252,25 @@ export default function AttendancePage() {
       }
     }
     
-    // Filter parsed records to exclude zero-attendance new students on first import
-    const filteredRecords = isFirstImport 
-      ? result.records.filter(r => {
-          const normalizedName = r.studentName.trim().toLowerCase();
-          const isNew = !currentNames.has(normalizedName);
-          const hasZero = zeroAttendanceNames.has(normalizedName);
-          return !(isNew && hasZero); // Exclude new students with 0%
-        })
-      : result.records;
+    // Parsed records to keep: exclude first-import zero new students, and exclude auto-ignored (DROPPED + zero)
+    const filteredRecords = result.records
+      .filter(r => !isDroppedZero(r))
+      .filter(r => {
+        if (!isFirstImport) return true;
+        const normalizedName = r.studentName.trim().toLowerCase();
+        const isNew = !currentNames.has(normalizedName);
+        const hasZero = zeroAttendanceNames.has(normalizedName);
+        return !(isNew && hasZero);
+      });
     
-    // Store parsed data
+    const autoIgnoredCount = result.records.filter(isDroppedZero).length;
     setParsedRecords(filteredRecords);
     setParseErrors(
-      skippedZeroAttendance > 0 
-        ? [...result.errors, `Skipped ${skippedZeroAttendance} student(s) with 0% attendance (first import)`]
-        : result.errors
+      [
+        ...result.errors,
+        ...(skippedZeroAttendance > 0 ? [`Skipped ${skippedZeroAttendance} student(s) with 0% attendance (first import)`] : []),
+        ...(autoIgnoredCount > 0 ? [`${autoIgnoredCount} student(s) with DROPPED + 0 hours were automatically ignored`] : []),
+      ]
     );
     // Store ALL new student names (we'll filter out ignored ones later)
     const today = new Date().toISOString().split('T')[0];

@@ -13,6 +13,8 @@ import {
   getCASASTestsByStudent,
   getUnitTestsByStudent,
   getAttendanceByStudent,
+  getISSTRecordsByStudent,
+  getNotesByStudent,
 } from '@/lib/storage';
 import {
   getStudentStats,
@@ -21,7 +23,7 @@ import {
   getColorLevel,
   getColorClass,
 } from '@/lib/calculations';
-import { Student, Class, ReportCard, StudentWithStats, CASASTest, UnitTest, Attendance } from '@/types';
+import { Student, Class, ReportCard, StudentWithStats, CASASTest, UnitTest, Attendance, ISSTRecord, StudentNote } from '@/types';
 import {
   PrinterIcon,
   DocumentPlusIcon,
@@ -218,6 +220,8 @@ export default function ReportCardsPage() {
   const [listeningTests, setListeningTests] = useState<CASASTest[]>([]);
   const [unitTests, setUnitTests] = useState<UnitTest[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [isstRecords, setIsstRecords] = useState<ISSTRecord[]>([]);
+  const [studentNotes, setStudentNotes] = useState<StudentNote[]>([]);
 
   useEffect(() => {
     if (mounted) {
@@ -244,6 +248,8 @@ export default function ReportCardsPage() {
       setListeningTests(getCASASTestsByStudent(selectedStudentId, 'listening'));
       setUnitTests(getUnitTestsByStudent(selectedStudentId));
       setAttendance(getAttendanceByStudent(selectedStudentId));
+      setIsstRecords(getISSTRecordsByStudent(selectedStudentId));
+      setStudentNotes(getNotesByStudent(selectedStudentId));
       
       // Load past report cards
       setPastReportCards(getReportCardsByStudent(selectedStudentId));
@@ -649,6 +655,56 @@ export default function ReportCardsPage() {
             {saveMessage && (
               <span className="text-green-600 text-sm">{saveMessage}</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Reference: ISST & Notes (below report card, hidden when printing) */}
+      {selectedStudentId && (
+        <div className="card print:hidden mt-6">
+          <h3 className="text-sm font-semibold text-[var(--cace-navy)] mb-3">Reference for teacher comments</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <h4 className="font-medium text-gray-700 mb-2">ISST attendance</h4>
+              {isstRecords.length === 0 ? (
+                <p className="text-gray-400 text-xs">No ISST dates recorded</p>
+              ) : (
+                <ul className="space-y-2">
+                  {isstRecords
+                    .sort((a, b) => b.month.localeCompare(a.month))
+                    .map((r) => {
+                      const monthLabel = (() => {
+                        const [y, m] = r.month.split('-');
+                        const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        return `${names[parseInt(m, 10) - 1]} ${y}`;
+                      })();
+                      return (
+                        <li key={r.id} className="text-gray-700">
+                          <span className="font-medium">{monthLabel}:</span>{' '}
+                          {r.dates.length ? r.dates.sort().join(', ') : '—'}
+                        </li>
+                      );
+                    })}
+                </ul>
+              )}
+            </div>
+            <div>
+              <h4 className="font-medium text-gray-700 mb-2">Notes</h4>
+              {studentNotes.length === 0 ? (
+                <p className="text-gray-400 text-xs">No notes</p>
+              ) : (
+                <ul className="space-y-2">
+                  {studentNotes
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map((n) => (
+                      <li key={n.id} className="text-gray-700">
+                        <span className="text-gray-500 text-xs">{n.date}</span>
+                        <p className="mt-0.5 whitespace-pre-wrap">{n.content}</p>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       )}

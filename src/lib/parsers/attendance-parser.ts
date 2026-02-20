@@ -32,6 +32,7 @@ const FIRST_NAME_COLUMNS = ['first name', 'first', 'firstname', 'given name', 'f
 const LAST_NAME_COLUMNS = ['last name', 'last', 'lastname', 'surname', 'family name', 'last_name'];
 const TOTAL_HOURS_COLUMNS = ['total hours', 'total hrs', 'hours attended', 'hrs attended', 'attended', 'actual hours', 'actual hrs'];
 const SCHEDULED_HOURS_COLUMNS = ['scheduled hours', 'scheduled hrs', 'sched hrs', 'total scheduled', 'scheduled', 'expected hours', 'expected hrs'];
+const STATUS_COLUMNS = ['status', 'student status', 'enrollment status', 'exit status', 'dropped', 'learner status'];
 
 /**
  * Normalize a string for column matching (handle various whitespace)
@@ -107,6 +108,7 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
     const lastNameCol = findColumn(headers, LAST_NAME_COLUMNS);
     const totalHoursCol = findColumn(headers, TOTAL_HOURS_COLUMNS);
     const scheduledHoursCol = findColumn(headers, SCHEDULED_HOURS_COLUMNS);
+    const statusCol = findColumn(headers, STATUS_COLUMNS);
     
     // Only look for combined name column if we don't have separate first/last columns
     // This prevents "name" from partially matching "Last Name" or "First Name"
@@ -215,10 +217,12 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
         result.warnings.push(`Row ${i + 1}: "${studentName}" has more hours than scheduled (${totalHours}/${scheduledHours}) - attendance will be over 100%`);
       }
       
+      const status = statusCol !== -1 ? String(row[statusCol] ?? '').trim() : undefined;
       const importRow: AttendanceImportRow = {
         studentName,
         totalHours,
         scheduledHours,
+        ...(status ? { status } : {}),
       };
       
       result.records.push(importRow);
