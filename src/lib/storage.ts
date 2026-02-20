@@ -395,15 +395,16 @@ export function moveStudent(studentId: string, newClassId: string): void {
   updateStudent(studentId, { classId: newClassId });
 }
 
-export function findStudentByName(name: string, classId: string): Student | undefined {
+export function findStudentByName(name: string, classId: string, includeDropped = false): Student | undefined {
   const normalizedName = name.trim().toLowerCase();
-  return getStudentsByClass(classId).find(
+  return getStudentsByClass(classId, includeDropped).find(
     s => s.name.trim().toLowerCase() === normalizedName
   );
 }
 
+/** Finds a student by name in the class (including dropped). If none, creates a new active student. Used by CASAS import so scores attach to dropped students instead of creating duplicates. */
 export function findOrCreateStudent(name: string, classId: string): Student {
-  const existing = findStudentByName(name, classId);
+  const existing = findStudentByName(name, classId, true);
   if (existing) return existing;
   return createStudent(name, classId);
 }

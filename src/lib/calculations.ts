@@ -98,21 +98,19 @@ export function calculateAttendanceAverage(attendance: Attendance[]): number | n
 // ============================================
 
 /**
- * Check if student has all required data for ranking
+ * Check if student has all required data for ranking.
+ * Enrollment date is not used; any test/attendance data counts.
  */
 export function hasCompleteData(
   readingTests: CASASTest[],
   listeningTests: CASASTest[],
   unitTests: UnitTest[],
-  attendance: Attendance[],
-  enrollmentDate: string
+  attendance: Attendance[]
 ): boolean {
-  // Must have at least 1 of each category (after enrollment date)
-  const hasReading = readingTests.some(t => t.score !== null && t.date >= enrollmentDate);
-  const hasListening = listeningTests.some(t => t.score !== null && t.date >= enrollmentDate);
-  const hasTests = unitTests.some(t => t.date >= enrollmentDate);
-  const hasAttendance = attendance.some(a => !a.isVacation && a.month >= enrollmentDate.substring(0, 7));
-  
+  const hasReading = readingTests.some(t => t.score !== null);
+  const hasListening = listeningTests.some(t => t.score !== null);
+  const hasTests = unitTests.length > 0;
+  const hasAttendance = attendance.some(a => !a.isVacation);
   return hasReading && hasListening && hasTests && hasAttendance;
 }
 
@@ -161,22 +159,15 @@ export function getStudentStats(
   const unitTests = getUnitTestsByStudent(student.id);
   const attendance = getAttendanceByStudent(student.id);
 
-  // Filter by enrollment date
-  const enrolledReading = readingTests.filter(t => t.date >= student.enrollmentDate);
-  const enrolledListening = listeningTests.filter(t => t.date >= student.enrollmentDate);
-  const enrolledTests = unitTests.filter(t => t.date >= student.enrollmentDate);
-  const enrolledAttendance = attendance.filter(
-    a => a.month >= student.enrollmentDate.substring(0, 7)
-  );
-
-  const casasReadingAvg = calculateCASASAverage(enrolledReading);
-  const casasReadingLast = getMostRecentCASASScore(enrolledReading);
-  const casasReadingHighest = getHighestCASASScore(enrolledReading);
-  const casasListeningAvg = calculateCASASAverage(enrolledListening);
-  const casasListeningLast = getMostRecentCASASScore(enrolledListening);
-  const casasListeningHighest = getHighestCASASScore(enrolledListening);
-  const testAverage = calculateTestAverage(enrolledTests);
-  const attendanceAverage = calculateAttendanceAverage(enrolledAttendance);
+  // Use all data for analysis/report cards; enrollment date is not a filter
+  const casasReadingAvg = calculateCASASAverage(readingTests);
+  const casasReadingLast = getMostRecentCASASScore(readingTests);
+  const casasReadingHighest = getHighestCASASScore(readingTests);
+  const casasListeningAvg = calculateCASASAverage(listeningTests);
+  const casasListeningLast = getMostRecentCASASScore(listeningTests);
+  const casasListeningHighest = getHighestCASASScore(listeningTests);
+  const testAverage = calculateTestAverage(unitTests);
+  const attendanceAverage = calculateAttendanceAverage(attendance);
 
   // Use HIGHEST score for progress calculation (determines level readiness)
   const casasReadingProgress = calculateCASASProgress(
@@ -191,11 +182,10 @@ export function getStudentStats(
   );
 
   const isComplete = hasCompleteData(
-    enrolledReading,
-    enrolledListening,
-    enrolledTests,
-    enrolledAttendance,
-    student.enrollmentDate
+    readingTests,
+    listeningTests,
+    unitTests,
+    attendance
   );
 
   const overallScore = isComplete

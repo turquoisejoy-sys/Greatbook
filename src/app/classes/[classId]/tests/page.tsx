@@ -308,8 +308,8 @@ export default function UnitTestsPage() {
     const existingStudents = getStudentsByClass(classId);
 
     for (const record of result.records) {
-      // Only match existing students - don't create new ones
-      const existingStudent = findStudentByName(record.studentName, classId);
+      // Match existing students (including dropped) - don't create new ones; scores attach to dropped students but they stay dropped
+      const existingStudent = findStudentByName(record.studentName, classId, true);
       
       if (!existingStudent) {
         unmatchedFromImport.push(record.studentName);
@@ -361,8 +361,8 @@ export default function UnitTestsPage() {
     const existingStudents = getStudentsByClass(classId);
 
     for (const record of multiTestPreview.records) {
-      // Only match existing students - don't create new ones
-      const existingStudent = findStudentByName(record.studentName, classId);
+      // Match existing students (including dropped) - don't create new ones; scores attach to dropped students but they stay dropped
+      const existingStudent = findStudentByName(record.studentName, classId, true);
       
       if (!existingStudent) {
         unmatchedFromImport.push(record.studentName);
