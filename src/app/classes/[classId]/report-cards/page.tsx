@@ -18,6 +18,8 @@ import {
   getStudentStats,
   getStudentsWithRanks,
   sortStudentsByLastName,
+  getColorLevel,
+  getColorClass,
 } from '@/lib/calculations';
 import { Student, Class, ReportCard, StudentWithStats, CASASTest, UnitTest, Attendance } from '@/types';
 import {
@@ -31,9 +33,13 @@ import Link from 'next/link';
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   ReferenceLine,
+  Cell,
+  LabelList,
 } from 'recharts';
 
 // CASAS Line Chart Component
@@ -117,6 +123,65 @@ function CASASLineChart({
           isAnimationActive={false}
         />
       </LineChart>
+    </div>
+  );
+}
+
+// Bar fill for attendance (match getScoreBgColor logic: 80+ green, 60+ yellow, else red; vacation = gray)
+function getAttendanceBarColor(percentage: number, isVacation: boolean): string {
+  if (isVacation) return '#9ca3af';
+  if (percentage >= 80) return '#22c55e';
+  if (percentage >= 60) return '#eab308';
+  return '#ef4444';
+}
+
+// Monthly Attendance Bar Chart
+function AttendanceBarChart({ attendance }: { attendance: Attendance[] }) {
+  const data = attendance.slice(0, 12).map(a => {
+    const monthNum = a.month.split('-')[1];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = monthNames[parseInt(monthNum, 10) - 1] || monthNum;
+    return {
+      month: monthName,
+      percentage: a.isVacation ? 0 : a.percentage,
+      barHeight: a.isVacation ? 5 : a.percentage, // small visible bar for vacation
+      isVacation: a.isVacation,
+      displayLabel: a.isVacation ? 'Out' : `${a.percentage.toFixed(0)}%`,
+    };
+  });
+
+  if (data.length === 0) return null;
+
+  return (
+    <div className="chart-container" style={{ width: '100%', height: 140 }}>
+      <BarChart
+        data={data}
+        width={320}
+        height={140}
+        margin={{ top: 5, right: 10, bottom: 5, left: 0 }}
+        style={{ maxWidth: '100%' }}
+      >
+        <XAxis
+          dataKey="month"
+          tick={{ fontSize: 9 }}
+          tickLine={false}
+          axisLine={{ stroke: '#e5e7eb' }}
+        />
+        <YAxis
+          domain={[0, 100]}
+          tick={{ fontSize: 9 }}
+          tickLine={false}
+          axisLine={{ stroke: '#e5e7eb' }}
+          width={28}
+          tickFormatter={(v) => `${v}%`}
+        />
+        <Bar dataKey="barHeight" radius={[2, 2, 0, 0]} isAnimationActive={false}>
+          <LabelList dataKey="displayLabel" position="top" fontSize={9} fill="#374151" />
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={getAttendanceBarColor(entry.percentage, entry.isVacation)} />
+          ))}
+        </Bar>
+      </BarChart>
     </div>
   );
 }
@@ -459,9 +524,9 @@ export default function ReportCardsPage() {
             <div className="grid grid-cols-2 gap-6 print:gap-8">
               {/* CASAS Reading Chart */}
               <div>
-                <div className="flex justify-between text-sm mb-2">
+                <div className="flex justify-between text-sm mb-2 items-center">
                   <span className="font-medium">Reading</span>
-                  <span className={`font-medium ${displayData.casasReadingProgress !== null && displayData.casasReadingProgress >= 100 ? 'text-green-600' : ''}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${getColorClass(getColorLevel(displayData.casasReadingProgress, currentClass.colorThresholds))}`}>
                     {displayData.casasReadingProgress !== null 
                       ? (displayData.casasReadingProgress >= 100 ? 'GOAL!' : `${displayData.casasReadingProgress.toFixed(0)}%`)
                       : '—'}
@@ -480,9 +545,9 @@ export default function ReportCardsPage() {
 
               {/* CASAS Listening Chart */}
               <div>
-                <div className="flex justify-between text-sm mb-2">
+                <div className="flex justify-between text-sm mb-2 items-center">
                   <span className="font-medium">Listening</span>
-                  <span className={`font-medium ${displayData.casasListeningProgress !== null && displayData.casasListeningProgress >= 100 ? 'text-green-600' : ''}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${getColorClass(getColorLevel(displayData.casasListeningProgress, currentClass.colorThresholds))}`}>
                     {displayData.casasListeningProgress !== null 
                       ? (displayData.casasListeningProgress >= 100 ? 'GOAL!' : `${displayData.casasListeningProgress.toFixed(0)}%`)
                       : '—'}
@@ -541,7 +606,7 @@ export default function ReportCardsPage() {
               </div>
 
               {/* Monthly Attendance */}
-              <div>
+              <div className="attendance-chart-section">
                 <div className="flex justify-between items-center mb-2">
                   <h4 className="font-semibold text-[var(--cace-navy)]">Monthly Attendance</h4>
                   {displayData.attendanceAverage !== null && (
@@ -553,24 +618,7 @@ export default function ReportCardsPage() {
                 {attendance.length === 0 ? (
                   <p className="text-gray-400 text-xs">No attendance recorded</p>
                 ) : (
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    {attendance.slice(0, 12).map(a => {
-                      // Parse month from YYYY-MM format
-                      const monthNum = a.month.split('-')[1];
-                      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                      const monthName = monthNames[parseInt(monthNum, 10) - 1] || monthNum;
-                      
-                      return (
-                        <div key={a.id} className={`flex justify-between px-2 py-1 rounded ${a.isVacation ? 'bg-gray-100' : getScoreBgColor(a.percentage)}`}>
-                          <span className="font-medium">{monthName}</span>
-                          <span className={a.isVacation ? 'text-gray-400 italic' : ''}>
-                            {a.isVacation ? 'Out' : `${a.percentage.toFixed(0)}%`}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <AttendanceBarChart attendance={attendance} />
                 )}
               </div>
             </div>
@@ -634,7 +682,8 @@ export default function ReportCardsPage() {
             display: none !important;
           }
           /* Fix chart layout for print */
-          .casas-charts-section {
+          .casas-charts-section,
+          .attendance-chart-section {
             page-break-inside: avoid;
           }
           .chart-container {
