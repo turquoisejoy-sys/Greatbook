@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses, getISSTRecordsByClass, addISSTDate, removeISSTDate } from '@/lib/storage';
-import { sortStudentsByLastName } from '@/lib/calculations';
+import { sortStudentsByLastName, normalizeNameForMatching } from '@/lib/calculations';
+import { parseISSTFileFromInput, ISSTParseResult, ISSTImportRow } from '@/lib/parsers';
 import { Student, Class, ISSTRecord } from '@/types';
-import { XMarkIcon, PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, ArrowUpTrayIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
 // School year months: August through June
@@ -54,6 +55,17 @@ export default function ISSTPage() {
   const [editingCell, setEditingCell] = useState<{ studentId: string; month: string } | null>(null);
   const [newDate, setNewDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Import state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importResults, setImportResults] = useState<ISSTParseResult[] | null>(null);
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
+  const [importPreview, setImportPreview] = useState<{
+    matched: { student: Student; record: ISSTImportRow; datesCount: number }[];
+    unmatched: ISSTImportRow[];
+  } | null>(null);
+  const [showImportSuccess, setShowImportSuccess] = useState<{ imported: number; dates: number } | null>(null);
 
   const schoolYearMonths = getSchoolYearMonths();
 
@@ -98,6 +110,111 @@ export default function ISSTPage() {
     setNewDate('');
   };
 
+  // Import functions
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const results = await parseISSTFileFromInput(file);
+      setImportResults(results);
+      
+      // Auto-select first sheet with data
+      const firstWithData = results.find(r => r.records.length > 0);
+      if (firstWithData) {
+        setSelectedSheet(firstWithData.sheetName);
+        prepareImportPreview(firstWithData);
+      }
+      
+      setShowImportModal(true);
+    } catch (err) {
+      alert('Error reading file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const prepareImportPreview = (result: ISSTParseResult) => {
+    const matched: { student: Student; record: ISSTImportRow; datesCount: number }[] = [];
+    const unmatched: ISSTImportRow[] = [];
+    
+    for (const record of result.records) {
+      // Try to match by name
+      const normalizedImport = normalizeNameForMatching(record.studentName);
+      const matchedStudent = students.find(s => 
+        normalizeNameForMatching(s.name) === normalizedImport
+      );
+      
+      if (matchedStudent) {
+        matched.push({
+          student: matchedStudent,
+          record,
+          datesCount: record.dates.length,
+        });
+      } else {
+        // Partial match attempt
+        const partialMatch = students.find(s => {
+          const importParts = normalizedImport.split(' ');
+          const studentParts = normalizeNameForMatching(s.name).split(' ');
+          return importParts.some(p => studentParts.includes(p) && p.length > 2);
+        });
+        
+        if (partialMatch) {
+          matched.push({
+            student: partialMatch,
+            record,
+            datesCount: record.dates.length,
+          });
+        } else {
+          unmatched.push(record);
+        }
+      }
+    }
+    
+    setImportPreview({ matched, unmatched });
+  };
+
+  const handleSheetChange = (sheetName: string) => {
+    setSelectedSheet(sheetName);
+    const result = importResults?.find(r => r.sheetName === sheetName);
+    if (result) {
+      prepareImportPreview(result);
+    }
+  };
+
+  const handleConfirmImport = () => {
+    if (!importPreview) return;
+    
+    let totalDates = 0;
+    
+    for (const { student, record } of importPreview.matched) {
+      for (const { month, date } of record.dates) {
+        addISSTDate(student.id, month, date);
+        totalDates++;
+      }
+    }
+    
+    refreshData();
+    setShowImportSuccess({ imported: importPreview.matched.length, dates: totalDates });
+    setShowImportModal(false);
+    setImportResults(null);
+    setImportPreview(null);
+    setSelectedSheet('');
+    
+    // Auto-hide success message
+    setTimeout(() => setShowImportSuccess(null), 5000);
+  };
+
+  const closeImportModal = () => {
+    setShowImportModal(false);
+    setImportResults(null);
+    setImportPreview(null);
+    setSelectedSheet('');
+  };
+
   // Filter students by search query
   const filteredStudents = searchQuery.trim()
     ? students.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -119,13 +236,49 @@ export default function ISSTPage() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-[var(--cace-navy)]">ISST - Tutoring Attendance</h1>
-        <p className="text-gray-600">{currentClass.name} • {currentClass.schedule}</p>
-        <p className="text-sm text-gray-500 mt-2">
-          Track student attendance at extra tutoring sessions. Click on a cell to add or view dates.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--cace-navy)]">ISST - Tutoring Attendance</h1>
+          <p className="text-gray-600">{currentClass.name} • {currentClass.schedule}</p>
+          <p className="text-sm text-gray-500 mt-2">
+            Track student attendance at extra tutoring sessions. Click on a cell to add or view dates.
+          </p>
+        </div>
+        {students.length > 0 && (
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="btn btn-secondary"
+            >
+              <ArrowUpTrayIcon className="w-4 h-4" />
+              Import
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Import Success Message */}
+      {showImportSuccess && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+          <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0" />
+          <p className="text-green-800">
+            Successfully imported {showImportSuccess.dates} dates for {showImportSuccess.imported} students.
+          </p>
+          <button 
+            onClick={() => setShowImportSuccess(null)}
+            className="ml-auto text-green-600 hover:text-green-800"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+      )}
 
       {/* Search Bar */}
       {students.length > 0 && (
@@ -292,6 +445,131 @@ export default function ISSTPage() {
           <span>Has attendance (number = count)</span>
         </div>
       </div>
+
+      {/* Import Modal */}
+      {showImportModal && importResults && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--cace-navy)]">Import ISST Data</h3>
+              <button onClick={closeImportModal} className="text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1">
+              {/* Sheet Selector */}
+              {importResults.length > 1 && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Select Sheet</label>
+                  <select
+                    value={selectedSheet}
+                    onChange={e => handleSheetChange(e.target.value)}
+                    className="input w-full max-w-xs"
+                  >
+                    {importResults.map(r => (
+                      <option key={r.sheetName} value={r.sheetName}>
+                        {r.sheetName} ({r.records.length} students)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Parse Errors */}
+              {importResults.find(r => r.sheetName === selectedSheet)?.errors.length ? (
+                <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-yellow-800 mb-1">Parsing Notes:</p>
+                  <ul className="text-xs text-yellow-700 list-disc list-inside">
+                    {importResults.find(r => r.sheetName === selectedSheet)?.errors.slice(0, 5).map((err, i) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {/* Preview */}
+              {importPreview && (
+                <>
+                  {/* Matched Students */}
+                  <div className="mb-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      Matched Students ({importPreview.matched.length})
+                    </h4>
+                    {importPreview.matched.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">No matches found</p>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto border rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="text-left px-3 py-2">Your Roster</th>
+                              <th className="text-left px-3 py-2">Import Name</th>
+                              <th className="text-center px-3 py-2">Dates</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {importPreview.matched.map(({ student, record, datesCount }) => (
+                              <tr key={student.id} className="border-t">
+                                <td className="px-3 py-2 font-medium">{student.name}</td>
+                                <td className="px-3 py-2 text-gray-600">{record.studentName}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-medium">
+                                    {datesCount}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Unmatched Students */}
+                  {importPreview.unmatched.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="text-sm font-semibold text-yellow-700 mb-2">
+                        Unmatched ({importPreview.unmatched.length}) - will be skipped
+                      </h4>
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                        <div className="flex flex-wrap gap-2">
+                          {importPreview.unmatched.map((record, i) => (
+                            <span 
+                              key={i} 
+                              className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs"
+                            >
+                              {record.studentName}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="p-4 border-t bg-gray-50 flex items-center justify-between">
+              <p className="text-sm text-gray-500">
+                {importPreview?.matched.length || 0} students will be updated
+              </p>
+              <div className="flex gap-2">
+                <button onClick={closeImportModal} className="btn btn-secondary">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmImport}
+                  disabled={!importPreview || importPreview.matched.length === 0}
+                  className="btn btn-primary"
+                >
+                  Import Data
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

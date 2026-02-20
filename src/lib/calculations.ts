@@ -358,6 +358,13 @@ export function sortStudentsByLastName<T extends { name: string }>(students: T[]
   return [...students].sort((a, b) => compareByLastName(a.name, b.name));
 }
 
+/**
+ * Normalize a name for fuzzy matching (lowercase, trim, remove extra spaces)
+ */
+export function normalizeNameForMatching(name: string): string {
+  return name.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
 // ============================================
 // Retention Calculations
 // ============================================
