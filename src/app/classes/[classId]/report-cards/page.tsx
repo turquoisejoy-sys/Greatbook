@@ -179,12 +179,12 @@ function AttendanceBarChart({ attendance }: { attendance: Attendance[] }) {
   if (data.length === 0) return null;
 
   return (
-    <div className="chart-container" style={{ width: '100%', height: 140 }}>
+    <div className="chart-container" style={{ width: '100%', height: 150 }}>
       <BarChart
         data={data}
         width={320}
-        height={140}
-        margin={{ top: 5, right: 10, bottom: 5, left: 0 }}
+        height={150}
+        margin={{ top: 22, right: 10, bottom: 5, left: 0 }}
         style={{ maxWidth: '100%' }}
       >
         <XAxis
