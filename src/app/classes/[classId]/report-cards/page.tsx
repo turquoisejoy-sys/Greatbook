@@ -505,7 +505,7 @@ export default function ReportCardsPage() {
 
       {/* Report Card Preview */}
       {selectedStudent && displayData && (
-        <div ref={printRef} className="card print:shadow-none print:border-none">
+        <div ref={printRef} className="card report-card-print print:shadow-none print:border-none">
           {/* Report Card Header */}
           <div className="text-center border-b pb-4 mb-4">
             <h2 className="text-2xl font-bold text-[var(--cace-navy)]">
@@ -671,7 +671,7 @@ export default function ReportCardsPage() {
             <textarea
               value={teacherComments}
               onChange={(e) => setTeacherComments(e.target.value)}
-              className="input text-sm print:border-none print:p-0 print:resize-none w-full"
+              className="input text-sm print:border-none print:p-0 print:resize-none w-full print:min-h-[12rem]"
               rows={4}
               placeholder="Comments on student progress, speaking/writing skills, areas for improvement..."
             />
@@ -756,18 +756,34 @@ export default function ReportCardsPage() {
       {/* Print Styles */}
       <style jsx global>{`
         @media print {
+          html, body {
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
           body * {
             visibility: hidden;
           }
-          .card, .card * {
+          .report-card-print, .report-card-print * {
             visibility: visible;
           }
-          .card {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            padding: 20px;
+          .report-card-print {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 20px !important;
+            overflow: visible !important;
+            max-height: none !important;
+            height: auto !important;
+            min-height: auto !important;
+          }
+          main {
+            overflow: visible !important;
+            height: auto !important;
           }
           .print\\:hidden {
             display: none !important;
@@ -779,6 +795,7 @@ export default function ReportCardsPage() {
           }
           .chart-container {
             overflow: visible !important;
+            padding-right: 8px;
           }
           .chart-container svg {
             overflow: visible !important;
