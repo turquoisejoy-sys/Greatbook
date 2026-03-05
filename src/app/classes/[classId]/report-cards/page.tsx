@@ -608,62 +608,60 @@ export default function ReportCardsPage() {
           </div>
 
           {/* Unit Tests & Attendance - Detailed Scores */}
-          {!viewingPastCard && (
-            <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
-              {/* Unit Tests */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-semibold text-[var(--cace-navy)]">Unit Tests</h4>
-                  {displayData.testAverage !== null && (
-                    <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.testAverage)}`}>
-                      Avg: {displayData.testAverage.toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-                {unitTests.length === 0 ? (
-                  <p className="text-gray-400 text-xs">No tests recorded</p>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-1">Test</th>
-                        <th className="text-right py-1">Score</th>
+          <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
+            {/* Unit Tests */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-semibold text-[var(--cace-navy)]">Unit Tests</h4>
+                {displayData.testAverage !== null && (
+                  <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.testAverage)}`}>
+                    Avg: {displayData.testAverage.toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              {unitTests.length === 0 ? (
+                <p className="text-gray-400 text-xs">No tests recorded</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1">Test</th>
+                      <th className="text-right py-1">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unitTests.slice(0, 8).map(test => (
+                      <tr key={test.id} className="border-b border-gray-100">
+                        <td className="py-1">{test.testName}</td>
+                        <td className="py-1 text-right">
+                          <span className={`px-1.5 py-0.5 rounded ${getScoreBgColor(test.score)}`}>
+                            {test.score}%
+                          </span>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {unitTests.slice(0, 8).map(test => (
-                        <tr key={test.id} className="border-b border-gray-100">
-                          <td className="py-1">{test.testName}</td>
-                          <td className="py-1 text-right">
-                            <span className={`px-1.5 py-0.5 rounded ${getScoreBgColor(test.score)}`}>
-                              {test.score}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* Monthly Attendance */}
-              <div className="attendance-chart-section">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-semibold text-[var(--cace-navy)]">Monthly Attendance</h4>
-                  {displayData.attendanceAverage !== null && (
-                    <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.attendanceAverage)}`}>
-                      Avg: {displayData.attendanceAverage.toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-                {attendance.length === 0 ? (
-                  <p className="text-gray-400 text-xs">No attendance recorded</p>
-                ) : (
-                  <AttendanceBarChart attendance={attendance} />
-                )}
-              </div>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
-          )}
+
+            {/* Monthly Attendance */}
+            <div className="attendance-chart-section">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-semibold text-[var(--cace-navy)]">Monthly Attendance</h4>
+                {displayData.attendanceAverage !== null && (
+                  <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.attendanceAverage)}`}>
+                    Avg: {displayData.attendanceAverage.toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              {attendance.length === 0 ? (
+                <p className="text-gray-400 text-xs">No attendance recorded</p>
+              ) : (
+                <AttendanceBarChart attendance={attendance} />
+              )}
+            </div>
+          </div>
 
           {/* Teacher Comments */}
           <div className="border-t pt-4">
