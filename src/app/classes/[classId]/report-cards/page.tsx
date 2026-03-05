@@ -93,7 +93,7 @@ function CASASLineChart({
         data={data} 
         width={320} 
         height={100} 
-        margin={{ top: 5, right: 10, bottom: 5, left: 0 }}
+        margin={{ top: 5, right: 22, bottom: 5, left: 0 }}
         style={{ maxWidth: '100%' }}
       >
         <XAxis 
@@ -114,7 +114,7 @@ function CASASLineChart({
           y={target} 
           stroke="#22c55e" 
           strokeDasharray="4 4" 
-          label={{ value: 'Target', fontSize: 9, fill: '#22c55e', position: 'right' }}
+          label={{ value: 'L4', fontSize: 9, fill: '#22c55e', position: 'right', width: 18 }}
         />
         <Line 
           type="monotone" 
@@ -129,6 +129,15 @@ function CASASLineChart({
   );
 }
 
+// Map class rank to a softer "Overall Performance" tier (thirds: above / average / below)
+function getPerformanceTier(rank: number, totalStudents: number): string {
+  if (totalStudents <= 0) return 'Average';
+  const third = Math.ceil(totalStudents / 3);
+  if (rank <= third) return 'Above average';
+  if (rank > totalStudents - third) return 'Below average';
+  return 'Average';
+}
+
 // Bar fill for attendance (match getScoreBgColor logic: 80+ green, 60+ yellow, else red; vacation = gray)
 function getAttendanceBarColor(percentage: number, isVacation: boolean): string {
   if (isVacation) return '#9ca3af';
@@ -137,9 +146,24 @@ function getAttendanceBarColor(percentage: number, isVacation: boolean): string 
   return '#ef4444';
 }
 
+// School year order: Aug (8) through Jul (7). Sort by (school year, month index), then take last 12.
+function sortAttendanceAugustToPresent(attendance: Attendance[]): Attendance[] {
+  return [...attendance].sort((a, b) => {
+    const [yA, mA] = a.month.split('-').map(Number);
+    const [yB, mB] = b.month.split('-').map(Number);
+    const schoolYearA = mA >= 8 ? yA : yA - 1;
+    const schoolYearB = mB >= 8 ? yB : yB - 1;
+    if (schoolYearA !== schoolYearB) return schoolYearA - schoolYearB;
+    const idxA = (mA - 8 + 12) % 12;
+    const idxB = (mB - 8 + 12) % 12;
+    return idxA - idxB;
+  });
+}
+
 // Monthly Attendance Bar Chart
 function AttendanceBarChart({ attendance }: { attendance: Attendance[] }) {
-  const data = attendance.slice(0, 12).map(a => {
+  const sorted = sortAttendanceAugustToPresent(attendance);
+  const data = sorted.slice(-12).map(a => {
     const monthNum = a.month.split('-')[1];
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthName = monthNames[parseInt(monthNum, 10) - 1] || monthNum;
@@ -509,13 +533,24 @@ export default function ReportCardsPage() {
                     <TrophyIcon className="w-6 h-6 text-yellow-500" />
                   )}
                   <div>
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Class Rank</p>
-                    <p className="text-2xl font-bold text-[var(--cace-navy)]">
-                      #{displayData.rank}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      of {displayData.totalStudents} students
-                    </p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Overall Performance</p>
+                    <div className="flex flex-col gap-0.5">
+                      {(['Above average', 'Average', 'Below average'] as const).map((tier) => {
+                        const isActive = getPerformanceTier(displayData.rank!, displayData.totalStudents) === tier;
+                        return (
+                          <span
+                            key={tier}
+                            className={`inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs font-medium ${
+                              isActive
+                                ? 'ring-2 ring-[var(--cace-navy)] ring-offset-0.5 text-[var(--cace-navy)]'
+                                : 'text-gray-400'
+                            }`}
+                          >
+                            {tier}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -545,7 +580,7 @@ export default function ReportCardsPage() {
                   color="#3B9B8E"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Last: {displayData.casasReadingLast?.toFixed(0) || '—'} | Target: {currentClass.casasReadingTarget}
+                  Last test: {displayData.casasReadingLast?.toFixed(0) || '—'} | Target score: {currentClass.casasReadingTarget}
                 </p>
               </div>
 
@@ -566,7 +601,7 @@ export default function ReportCardsPage() {
                   color="#1E3A5F"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Last: {displayData.casasListeningLast?.toFixed(0) || '—'} | Target: {currentClass.casasListeningTarget}
+                  Last test: {displayData.casasListeningLast?.toFixed(0) || '—'} | Target score: {currentClass.casasListeningTarget}
                 </p>
               </div>
             </div>
