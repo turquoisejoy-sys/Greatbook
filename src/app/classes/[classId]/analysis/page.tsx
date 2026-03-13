@@ -13,6 +13,7 @@ import {
   PrinterIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import StudentQuickNotes from '@/components/StudentQuickNotes';
 
 type SortField = 'rank' | 'name' | 'casasReading' | 'casasListening' | 'tests' | 'attendance' | 'overall';
 type SortDir = 'asc' | 'desc';
@@ -304,12 +305,11 @@ export default function AnalysisPage() {
                       {getRankBadge(student)}
                     </td>
                     <td className="font-medium">
-                      <Link 
-                        href={`/classes/${classId}/notes`}
-                        className="hover:text-[var(--cace-teal)]"
-                      >
-                        {student.name}
-                      </Link>
+                      <StudentQuickNotes
+                        classId={classId}
+                        studentId={student.id}
+                        studentName={student.name}
+                      />
                     </td>
                     <td className="text-center">
                       {student.casasReadingProgress !== null ? (

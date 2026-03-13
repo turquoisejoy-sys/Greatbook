@@ -9,6 +9,7 @@ import { parseISSTFileFromInput, ISSTParseResult, ISSTImportRow } from '@/lib/pa
 import { Student, Class, ISSTRecord } from '@/types';
 import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, ArrowUpTrayIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import StudentQuickNotes from '@/components/StudentQuickNotes';
 
 // School year months: August through June
 const SCHOOL_MONTHS = [
@@ -308,17 +309,17 @@ export default function ISSTPage() {
           <p className="text-gray-500">No students match "{searchQuery}"</p>
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <div className="card overflow-auto max-h-[calc(100vh-220px)]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-3 font-semibold text-[var(--cace-navy)] sticky left-0 bg-white min-w-[150px]">
+                <th className="text-left py-3 px-3 font-semibold text-[var(--cace-navy)] sticky top-0 left-0 z-30 bg-white min-w-[150px]">
                   Student
                 </th>
                 {schoolYearMonths.map(m => (
                   <th 
                     key={m.fullMonth} 
-                    className="text-center py-3 px-2 font-semibold text-[var(--cace-navy)] min-w-[70px]"
+                    className="text-center py-3 px-2 font-semibold text-[var(--cace-navy)] sticky top-0 z-20 bg-white min-w-[70px]"
                   >
                     {m.label}
                   </th>
@@ -329,12 +330,12 @@ export default function ISSTPage() {
               {filteredStudents.map(student => (
                 <tr key={student.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-2 px-3 font-medium sticky left-0 bg-white">
-                    <Link 
-                      href={`/classes/${classId}/notes#student-${student.id}`}
-                      className="text-[var(--cace-navy)] hover:text-[var(--cace-teal)] hover:underline"
-                    >
-                      {student.name}
-                    </Link>
+                    <StudentQuickNotes
+                      classId={classId}
+                      studentId={student.id}
+                      studentName={student.name}
+                      className="text-left text-[var(--cace-navy)] hover:text-[var(--cace-teal)] hover:underline"
+                    />
                   </td>
                   {schoolYearMonths.map(m => {
                     const record = getRecordForCell(student.id, m.fullMonth);

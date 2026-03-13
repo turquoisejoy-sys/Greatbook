@@ -20,6 +20,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import StudentQuickNotes from '@/components/StudentQuickNotes';
 
 interface StudentWithTests {
   student: Student;
@@ -262,7 +263,13 @@ export default function CASASListeningPage() {
             <tbody>
               {studentsWithTests.map(({ student, tests, average, highest, progress }) => (
                 <tr key={student.id}>
-                  <td className="sticky left-0 bg-white font-medium z-10">{student.name}</td>
+                  <td className="sticky left-0 bg-white font-medium z-10">
+                    <StudentQuickNotes
+                      classId={classId}
+                      studentId={student.id}
+                      studentName={student.name}
+                    />
+                  </td>
                   {testColumns.map((_, idx) => {
                     const test = tests[idx] || null;
                     const isEditing = editingCell?.studentId === student.id && editingCell?.testIndex === idx;

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   HomeIcon,
   UserGroupIcon,
@@ -19,17 +19,29 @@ import {
   ClockIcon,
 } from '@heroicons/react/24/outline';
 import { SyncStatus } from '@/lib/sync';
+import { Class } from '@/types';
 
 interface SidebarProps {
   currentClassId: string | null;
   currentClassName?: string | null;
+  classes: Class[];
+  onSelectClass: (id: string | null) => void;
   syncStatus?: SyncStatus;
   isCloudEnabled?: boolean;
   className?: string;
 }
 
-export default function Sidebar({ currentClassId, currentClassName, syncStatus = 'idle', isCloudEnabled = false, className }: SidebarProps) {
+export default function Sidebar({
+  currentClassId,
+  currentClassName,
+  classes,
+  onSelectClass,
+  syncStatus = 'idle',
+  isCloudEnabled = false,
+  className,
+}: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const classBasePath = currentClassId ? `/classes/${currentClassId}` : '';
 
@@ -57,6 +69,24 @@ export default function Sidebar({ currentClassId, currentClassName, syncStatus =
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
+  };
+
+  const handleClassChange = (nextClassId: string) => {
+    if (!nextClassId || nextClassId === currentClassId) return;
+
+    onSelectClass(nextClassId);
+
+    if (pathname.startsWith('/classes/')) {
+      const pathParts = pathname.split('/').filter(Boolean);
+      const currentSection = pathParts.slice(2).join('/');
+      const nextPath = currentSection
+        ? `/classes/${nextClassId}/${currentSection}`
+        : `/classes/${nextClassId}/students`;
+      router.push(nextPath);
+      return;
+    }
+
+    router.push(`/classes/${nextClassId}/students`);
   };
 
   // Sync status indicator
@@ -126,6 +156,28 @@ export default function Sidebar({ currentClassId, currentClassName, syncStatus =
             {link.label}
           </Link>
         ))}
+
+        {classes.length > 0 && (
+          <div className="px-3 pt-2 pb-3">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-white/40 mb-2">
+              Quick Class Switch
+            </label>
+            <select
+              value={currentClassId || ''}
+              onChange={(e) => handleClassChange(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none transition focus:border-white/30"
+            >
+              <option value="" className="text-gray-900">
+                Select a class...
+              </option>
+              {classes.map((cls) => (
+                <option key={cls.id} value={cls.id} className="text-gray-900">
+                  {cls.name} • {cls.schedule}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {currentClassId && (
           <>

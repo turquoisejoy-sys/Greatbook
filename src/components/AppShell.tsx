@@ -99,6 +99,8 @@ export default function AppShell({ children }: AppShellProps) {
         <Sidebar 
           currentClassId={currentClassId} 
           currentClassName={classes.find(c => c.id === currentClassId)?.name}
+          classes={classes}
+          onSelectClass={setCurrentClassId}
           syncStatus={syncStatus} 
           isCloudEnabled={isCloudEnabled} 
         />

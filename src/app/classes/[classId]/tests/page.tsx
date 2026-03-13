@@ -27,6 +27,7 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import StudentQuickNotes from '@/components/StudentQuickNotes';
 
 interface TestColumn {
   testName: string;
@@ -450,6 +451,13 @@ export default function UnitTestsPage() {
           <p className="text-gray-600">{currentClass.name}</p>
         </div>
         <div className="flex gap-3">
+          <button
+            onClick={() => setShowAddTestRow(true)}
+            className="btn btn-secondary"
+          >
+            <PlusIcon className="w-5 h-5" />
+            Add Test
+          </button>
           <input
             type="file"
             ref={fileInputRef}
@@ -467,96 +475,35 @@ export default function UnitTestsPage() {
         </div>
       </div>
 
-      {/* Test Management Section */}
-      <div className="card">
-        <h3 className="font-semibold text-[var(--cace-navy)] mb-3">Tests</h3>
-        <div className="space-y-2">
-          {testColumns.map((col, idx) => (
-            <div key={idx} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-              {editingTestIdx === idx ? (
-                <>
-                  <input
-                    type="text"
-                    value={editTestName}
-                    onChange={e => setEditTestName(e.target.value)}
-                    className="input min-w-[200px] flex-1"
-                    placeholder="Test name"
-                    autoFocus
-                  />
-                  <input
-                    type="date"
-                    value={editTestDate}
-                    onChange={e => setEditTestDate(e.target.value)}
-                    className="input w-44"
-                  />
-                  <button
-                    onClick={() => saveEditTest(idx)}
-                    className="text-green-600 hover:text-green-700 p-1"
-                  >✓</button>
-                  <button
-                    onClick={() => setEditingTestIdx(null)}
-                    className="text-gray-400 hover:text-gray-600 p-1"
-                  >✕</button>
-                </>
-              ) : (
-                <>
-                  <span className="font-medium flex-1">{col.testName}</span>
-                  <span className="text-gray-500 text-sm">
-                    {new Date(col.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </span>
-                  <button
-                    onClick={() => startEditTest(idx)}
-                    className="text-blue-600 hover:text-blue-700 text-sm"
-                  >Edit</button>
-                  <button
-                    onClick={() => setDeleteConfirmIdx(idx)}
-                    className="text-red-500 hover:text-red-600 p-1"
-                  >
-                    <TrashIcon className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-          
-          {/* Add New Test Row */}
-          {showAddTestRow ? (
-            <div className="flex items-center gap-3 p-2 bg-blue-50 rounded-lg border-2 border-dashed border-blue-200">
-              <input
-                type="text"
-                value={newTestName}
-                onChange={e => setNewTestName(e.target.value)}
-                className="input min-w-[200px] flex-1"
-                placeholder="Test name (e.g., Unit 1, Midterm)"
-                autoFocus
-              />
-              <input
-                type="date"
-                value={newTestDate}
-                onChange={e => setNewTestDate(e.target.value)}
-                className="input w-44"
-              />
-              <button
-                onClick={handleAddTestColumn}
-                disabled={!newTestName.trim()}
-                className="btn btn-primary text-sm disabled:opacity-50"
-              >Add</button>
-              <button
-                onClick={() => { setShowAddTestRow(false); setNewTestName(''); }}
-                className="text-gray-400 hover:text-gray-600 p-1"
-              >✕</button>
-            </div>
-          ) : (
+      {showAddTestRow && (
+        <div className="card">
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={newTestName}
+              onChange={e => setNewTestName(e.target.value)}
+              className="input min-w-[200px] flex-1"
+              placeholder="Test name (e.g., Unit 1, Midterm)"
+              autoFocus
+            />
+            <input
+              type="date"
+              value={newTestDate}
+              onChange={e => setNewTestDate(e.target.value)}
+              className="input w-44"
+            />
             <button
-              onClick={() => setShowAddTestRow(true)}
-              className="flex items-center gap-2 text-blue-600 hover:text-blue-700 p-2"
-            >
-              <PlusIcon className="w-5 h-5" />
-              Add Test
-            </button>
-          )}
+              onClick={handleAddTestColumn}
+              disabled={!newTestName.trim()}
+              className="btn btn-primary text-sm disabled:opacity-50"
+            >Add</button>
+            <button
+              onClick={() => { setShowAddTestRow(false); setNewTestName(''); }}
+              className="text-gray-400 hover:text-gray-600 p-1"
+            >✕</button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Import Result */}
       {importResult && (
@@ -588,7 +535,7 @@ export default function UnitTestsPage() {
               {importResult.studentsWithoutScores.length > 0 && (
                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-yellow-800 font-medium text-sm">
-                    📋 {importResult.studentsWithoutScores.length} student(s) in class didn't get a score:
+                    📋 {importResult.studentsWithoutScores.length} student(s) in class didn&apos;t get a score:
                   </p>
                   <ul className="mt-1 text-yellow-700 text-sm list-disc list-inside max-h-32 overflow-y-auto">
                     {importResult.studentsWithoutScores.map((name, i) => <li key={i}>{name}</li>)}
@@ -668,7 +615,10 @@ export default function UnitTestsPage() {
                     className="text-center border-l min-w-[90px] cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort(col.testName)}
                   >
-                    {col.testName} <SortIcon column={col.testName} />
+                    <div className="flex items-center justify-center gap-1">
+                      <span>{col.testName}</span>
+                      <SortIcon column={col.testName} />
+                    </div>
                   </th>
                 ))}
                 {testColumns.length === 0 && (
@@ -685,7 +635,69 @@ export default function UnitTestsPage() {
               <tr>
                 {testColumns.map((col, idx) => (
                   <th key={idx} className="text-center text-xs font-normal border-l text-gray-500">
-                    {new Date(col.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}
+                    {editingTestIdx === idx ? (
+                      <div className="flex items-center justify-center gap-1 px-1 py-1">
+                        <input
+                          type="text"
+                          value={editTestName}
+                          onChange={e => setEditTestName(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          className="w-24 rounded border px-1 py-0.5 text-xs text-gray-700"
+                          placeholder="Test name"
+                          autoFocus
+                        />
+                        <input
+                          type="date"
+                          value={editTestDate}
+                          onChange={e => setEditTestDate(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          className="w-28 rounded border px-1 py-0.5 text-xs text-gray-700"
+                        />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            saveEditTest(idx);
+                          }}
+                          className="text-green-600 hover:text-green-700"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingTestIdx(null);
+                          }}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center gap-2 px-1 py-1">
+                        <span>
+                          {new Date(col.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditTest(idx);
+                          }}
+                          className="text-blue-600 hover:text-blue-700"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmIdx(idx);
+                          }}
+                          className="text-red-500 hover:text-red-600"
+                          title="Delete test"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </th>
                 ))}
                 {testColumns.length === 0 && (
@@ -706,7 +718,13 @@ export default function UnitTestsPage() {
                   ref={isFirstMatch ? highlightedRowRef : null}
                   className={isMatch ? 'bg-yellow-100' : ''}
                 >
-                  <td className={`sticky left-0 font-medium z-10 whitespace-nowrap w-0 ${isMatch ? 'bg-yellow-100' : 'bg-white'}`}>{student.name}</td>
+                  <td className={`sticky left-0 font-medium z-10 whitespace-nowrap w-0 ${isMatch ? 'bg-yellow-100' : 'bg-white'}`}>
+                    <StudentQuickNotes
+                      classId={classId}
+                      studentId={student.id}
+                      studentName={student.name}
+                    />
+                  </td>
                   {testColumns.map((col, idx) => {
                     const test = tests.find(t => t.testName === col.testName);
                     const isEditing = editingCell?.studentId === student.id && editingCell?.testName === col.testName;

@@ -27,6 +27,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { StopIcon } from '@heroicons/react/24/solid';
 import Link from 'next/link';
+import StudentQuickNotes from '@/components/StudentQuickNotes';
 
 // School year months (Aug - Jun)
 const MONTHS = [
@@ -552,7 +553,13 @@ export default function AttendancePage() {
             <tbody>
               {studentAttendance.map(({ student, monthlyData, average }) => (
                 <tr key={student.id}>
-                  <td className="sticky left-0 bg-white font-medium z-10">{student.name}</td>
+                  <td className="sticky left-0 bg-white font-medium z-10">
+                    <StudentQuickNotes
+                      classId={classId}
+                      studentId={student.id}
+                      studentName={student.name}
+                    />
+                  </td>
                   {MONTHS.map(({ key }) => {
                     const monthKey = getMonthKey(key);
                     const record = monthlyData.get(monthKey);
