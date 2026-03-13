@@ -50,11 +50,15 @@ const FIRST_NAME_COLUMNS = ['first name', 'first', 'firstname', 'given name'];
 const LAST_NAME_COLUMNS = ['last name', 'last', 'lastname', 'surname', 'family name'];
 const SCORE_COLUMNS = ['score', 'test score', 'grade', 'points', 'result', 'percent', 'percentage', '%'];
 
+function normalizeString(value: unknown): string {
+  return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 /**
  * Find a column by checking multiple possible names
  */
 function findColumn(headers: string[], possibleNames: string[]): number {
-  const lowerHeaders = headers.map(h => h?.toString().toLowerCase().trim() || '');
+  const lowerHeaders = headers.map(h => normalizeString(h));
   for (const name of possibleNames) {
     const index = lowerHeaders.indexOf(name);
     if (index !== -1) return index;
@@ -67,45 +71,181 @@ function findColumn(headers: string[], possibleNames: string[]): number {
   return -1;
 }
 
-/**
- * Parse a score from various formats (handles percentages, decimals, etc.)
- */
-function parseScore(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  
-  if (typeof value === 'number') {
-    // If it's a decimal like 0.85, convert to percentage
-    if (value >= 0 && value <= 1) {
-      return Math.round(value * 100);
+function extractPossiblePoints(...values: unknown[]): number | null {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+
+    const possiblePointsMatch = text.match(/possible points(?:[^0-9]*?)(\d+(?:\.\d+)?)/i);
+    if (possiblePointsMatch) {
+      return parseFloat(possiblePointsMatch[1]);
     }
-    return Math.round(value);
+
+    const outOfMatch = text.match(/out of\s*(\d+(?:\.\d+)?)/i);
+    if (outOfMatch) {
+      return parseFloat(outOfMatch[1]);
+    }
+
+    const pointsMatch = text.match(/\b(\d+(?:\.\d+)?)\s*points?\b/i);
+    if (pointsMatch) {
+      return parseFloat(pointsMatch[1]);
+    }
   }
-  
-  let str = String(value).trim();
-  
-  // Remove percentage sign if present
-  str = str.replace(/%/g, '');
-  
-  // Handle "85/100" format
-  const fractionMatch = str.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+)$/);
+
+  return null;
+}
+
+function parseRawNumericValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') return value;
+
+  const str = String(value).trim().replace(/,/g, '');
+  if (!str) return null;
+
+  const fractionMatch = str.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
   if (fractionMatch) {
     const numerator = parseFloat(fractionMatch[1]);
     const denominator = parseFloat(fractionMatch[2]);
-    if (denominator !== 0) {
-      return Math.round((numerator / denominator) * 100);
-    }
+    if (denominator === 0) return null;
+    return (numerator / denominator) * 100;
   }
-  
-  const num = parseFloat(str);
-  if (isNaN(num)) return null;
-  
-  // If it's a decimal like 0.85, convert to percentage
+
+  const num = parseFloat(str.replace(/%/g, ''));
+  return Number.isNaN(num) ? null : num;
+}
+
+function parseScoreCandidate(value: unknown): number | null {
+  const num = parseRawNumericValue(value);
+  if (num === null) return null;
+
+  if (num >= 0 && num <= 1) return Math.round(num * 100);
+  if (num >= 0 && num <= 100) return Math.round(num);
+  return null;
+}
+
+/**
+ * Parse a score from various formats (handles percentages, decimals, etc.)
+ */
+function parseScore(value: unknown, possiblePoints?: number | null): number | null {
+  const num = parseRawNumericValue(value);
+  if (num === null) return null;
+
+  if (possiblePoints && possiblePoints > 0 && num > 1 && num <= possiblePoints) {
+    return Math.round((num / possiblePoints) * 100);
+  }
+
   if (num >= 0 && num <= 1) {
     return Math.round(num * 100);
   }
-  
-  // Clamp to 0-100 range
-  return Math.round(Math.max(0, Math.min(100, num)));
+
+  if (num >= 0 && num <= 100) {
+    return Math.round(num);
+  }
+
+  return null;
+}
+
+function getScoreColumnCandidates(headers: string[]): number[] {
+  return headers
+    .map((header, index) => ({ header: normalizeString(header), index }))
+    .filter(({ header }) => {
+      if (!header) return false;
+      return SCORE_COLUMNS.some(name => header === name || header.includes(name));
+    })
+    .map(({ index }) => index);
+}
+
+function chooseBestScoreColumn(headers: string[], rows: unknown[][]): { index: number; validCount: number } | null {
+  const explicitCandidates = getScoreColumnCandidates(headers);
+  const allCandidates = explicitCandidates.length > 0
+    ? explicitCandidates
+    : headers
+        .map((_, index) => index)
+        .filter(index => rows.some(row => parseScoreCandidate(row[index]) !== null));
+
+  let best: { index: number; validCount: number; priority: number } | null = null;
+
+  for (const index of allCandidates) {
+    const header = normalizeString(headers[index]);
+    const validCount = rows.reduce((count, row) => count + (parseScoreCandidate(row[index]) !== null ? 1 : 0), 0);
+    if (validCount === 0) continue;
+
+    let priority = 0;
+    if (header.includes('total') || header.includes('final') || header.includes('overall')) priority += 3;
+    if (header.includes('score') || header.includes('grade') || header.includes('result')) priority += 2;
+    if (header.includes('percent') || header.includes('percentage') || header === '%') priority += 1;
+
+    if (
+      !best ||
+      validCount > best.validCount ||
+      (validCount === best.validCount && priority > best.priority) ||
+      (validCount === best.validCount && priority === best.priority && index > best.index)
+    ) {
+      best = { index, validCount, priority };
+    }
+  }
+
+  return best ? { index: best.index, validCount: best.validCount } : null;
+}
+
+function findHeaderRow(data: unknown[][]): {
+  rowIndex: number;
+  headers: string[];
+  nameCol: number;
+  firstNameCol: number;
+  lastNameCol: number;
+  scoreCol: number;
+} | null {
+  let best:
+    | {
+        rowIndex: number;
+        headers: string[];
+        nameCol: number;
+        firstNameCol: number;
+        lastNameCol: number;
+        scoreCol: number;
+        scoreCount: number;
+      }
+    | null = null;
+
+  for (let rowIndex = 0; rowIndex < Math.min(data.length, 10); rowIndex++) {
+    const headers = (data[rowIndex] || []).map(cell => String(cell || ''));
+    if (headers.length === 0) continue;
+
+    const firstNameCol = findColumn(headers, FIRST_NAME_COLUMNS);
+    const lastNameCol = findColumn(headers, LAST_NAME_COLUMNS);
+    const hasSeparateNameCols = firstNameCol !== -1 || lastNameCol !== -1;
+    const nameCol = hasSeparateNameCols ? -1 : findColumn(headers, NAME_COLUMNS);
+    const hasName = nameCol !== -1 || hasSeparateNameCols;
+    if (!hasName) continue;
+
+    const previewRows = data.slice(rowIndex + 1, rowIndex + 26);
+    const scoreCol = chooseBestScoreColumn(headers, previewRows);
+    if (!scoreCol) continue;
+
+    if (!best || scoreCol.validCount > best.scoreCount) {
+      best = {
+        rowIndex,
+        headers,
+        nameCol,
+        firstNameCol,
+        lastNameCol,
+        scoreCol: scoreCol.index,
+        scoreCount: scoreCol.validCount,
+      };
+    }
+  }
+
+  if (!best) return null;
+
+  return {
+    rowIndex: best.rowIndex,
+    headers: best.headers,
+    nameCol: best.nameCol,
+    firstNameCol: best.firstNameCol,
+    lastNameCol: best.lastNameCol,
+    scoreCol: best.scoreCol,
+  };
 }
 
 /**
@@ -126,87 +266,78 @@ export function parseTestsFile(file: ArrayBuffer): TestsParseResult {
 
   try {
     const workbook = XLSX.read(file, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    
-    // Convert to array of arrays
-    const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-    
-    if (data.length < 2) {
-      result.errors.push('File appears to be empty or has no data rows');
-      return result;
-    }
-
-    // Find headers (first row)
-    const headers = (data[0] as string[]).map(h => String(h || ''));
-    
-    // Find column indices
-    const nameCol = findColumn(headers, NAME_COLUMNS);
-    const firstNameCol = findColumn(headers, FIRST_NAME_COLUMNS);
-    const lastNameCol = findColumn(headers, LAST_NAME_COLUMNS);
-    const scoreCol = findColumn(headers, SCORE_COLUMNS);
-    
-    // Validate required columns
-    const hasName = nameCol !== -1 || (firstNameCol !== -1 || lastNameCol !== -1);
-    if (!hasName) {
-      result.errors.push('Could not find student name column. Expected: "Student Name", "Name", "Last Name", or "First Name"');
-    }
-    if (scoreCol === -1) {
-      result.errors.push('Could not find score column. Expected: "Score", "Test Score", "Grade", or "Points"');
-    }
-    
-    if (result.errors.length > 0) {
-      return result;
-    }
-
-    // Process data rows
     let totalScore = 0;
-    
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i] as unknown[];
-      if (!row || row.length === 0) continue;
-      
-      // Get student name
-      let studentName: string;
-      if (nameCol !== -1) {
-        studentName = String(row[nameCol] || '').trim();
-      } else {
-        const firstName = firstNameCol !== -1 ? String(row[firstNameCol] || '').trim() : '';
-        const lastName = lastNameCol !== -1 ? String(row[lastNameCol] || '').trim() : '';
-        studentName = [firstName, lastName].filter(Boolean).join(' ').trim();
+
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+      if (data.length < 2) continue;
+
+      const headerRow = findHeaderRow(data);
+      if (!headerRow) continue;
+
+      const {
+        rowIndex: headerRowIndex,
+        headers,
+        nameCol,
+        firstNameCol,
+        lastNameCol,
+        scoreCol,
+      } = headerRow;
+
+      const possiblePoints = extractPossiblePoints(
+        headers[scoreCol],
+        data[headerRowIndex - 1]?.[scoreCol],
+        data[headerRowIndex - 2]?.[scoreCol],
+        data[headerRowIndex - 1]?.join(' '),
+      );
+
+      result.warnings.push(
+        `Sheet "${sheetName}": using row ${headerRowIndex + 1} as headers and "${headers[scoreCol]}" as the score column`,
+      );
+
+      for (let i = headerRowIndex + 1; i < data.length; i++) {
+        const row = data[i] as unknown[];
+        if (!row || row.length === 0) continue;
+
+        let studentName: string;
+        if (nameCol !== -1) {
+          studentName = String(row[nameCol] || '').trim();
+          if (studentName.includes(',')) {
+            const parts = studentName.split(',').map(part => part.trim()).filter(Boolean);
+            if (parts.length >= 2) {
+              studentName = `${parts[1]} ${parts[0]}`;
+            }
+          }
+        } else {
+          const firstName = firstNameCol !== -1 ? String(row[firstNameCol] || '').trim() : '';
+          const lastName = lastNameCol !== -1 ? String(row[lastNameCol] || '').trim() : '';
+          studentName = [firstName, lastName].filter(Boolean).join(' ').trim();
+        }
+
+        if (!studentName) {
+          continue;
+        }
+
+        const score = parseScore(row[scoreCol], possiblePoints);
+        if (score === null) {
+          result.warnings.push(`Sheet "${sheetName}" row ${i + 1}: Skipped "${studentName}" - invalid or missing score`);
+          continue;
+        }
+
+        const importRow: UnitTestImportRow = {
+          studentName,
+          score,
+        };
+
+        result.records.push(importRow);
+        totalScore += score;
+        if (score >= 60) result.summary.passing++;
+        if (score >= 80) result.summary.excellent++;
       }
-      
-      if (!studentName) {
-        // Skip empty rows silently
-        continue;
-      }
-      
-      // Get score
-      const score = parseScore(row[scoreCol]);
-      
-      if (score === null) {
-        result.warnings.push(`Row ${i + 1}: Skipped "${studentName}" - invalid or missing score`);
-        continue;
-      }
-      
-      // Check for unusual values
-      if (score < 0 || score > 100) {
-        result.warnings.push(`Row ${i + 1}: "${studentName}" score adjusted to valid range (original: ${row[scoreCol]})`);
-      }
-      
-      const importRow: UnitTestImportRow = {
-        studentName,
-        score,
-      };
-      
-      result.records.push(importRow);
-      
-      // Update summary
-      totalScore += score;
-      if (score >= 60) result.summary.passing++;
-      if (score >= 80) result.summary.excellent++;
     }
-    
+
     // Calculate summary
     result.summary.totalRecords = result.records.length;
     result.summary.averageScore = result.records.length > 0 
@@ -214,7 +345,7 @@ export function parseTestsFile(file: ArrayBuffer): TestsParseResult {
       : 0;
     
     if (result.records.length === 0) {
-      result.errors.push('No valid test records found in file');
+      result.errors.push('No valid test records found in file. The file needs at least one sheet with student names and a score column.');
     }
     
   } catch (err) {
