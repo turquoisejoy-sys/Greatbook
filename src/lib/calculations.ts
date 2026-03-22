@@ -435,6 +435,8 @@ export function calculate30DayRetention(classId: string): RetentionResult {
   let eligible = 0;
   let retained = 0;
   
+  // Students who transferred to another class are not in this roster (classId changed) — not evaluated here,
+  // so transfers do not count as drops for this class.
   for (const student of students) {
     if (student.isPromoted) continue;
 

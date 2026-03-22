@@ -7,11 +7,19 @@ import { useApp } from '@/components/AppShell';
 import { getClasses } from '@/lib/storage';
 import { getStudentsWithRanksByClassId } from '@/lib/calculations';
 import { StudentWithStats } from '@/types';
-import { ArrowLeftIcon, UserGroupIcon, PrinterIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowLeftIcon,
+  UserGroupIcon,
+  PrinterIcon,
+  Bars3Icon,
+} from '@heroicons/react/24/outline';
 
-function formatScore(s: StudentWithStats): string {
-  if (s.overallScore === null || s.overallScore === undefined) return '—';
-  return `${s.overallScore.toFixed(1)}%`;
+function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return list;
+  const next = [...list];
+  const [removed] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, removed);
+  return next;
 }
 
 function buildPairs(ranked: StudentWithStats[]): {
@@ -30,6 +38,73 @@ function buildPairs(ranked: StudentWithStats[]): {
   return { pairs, solo };
 }
 
+function PartnerNameCell({
+  student,
+  orderIndex,
+  nameClassName,
+  orderedStudents,
+  setOrderIds,
+  dragIndex,
+  setDragIndex,
+  dropTargetIndex,
+  setDropTargetIndex,
+}: {
+  student: StudentWithStats;
+  orderIndex: number;
+  nameClassName: string;
+  orderedStudents: StudentWithStats[];
+  setOrderIds: (ids: string[] | null) => void;
+  dragIndex: number | null;
+  setDragIndex: (i: number | null) => void;
+  dropTargetIndex: number | null;
+  setDropTargetIndex: (i: number | null) => void;
+}) {
+  const isDrop =
+    dropTargetIndex === orderIndex && dragIndex !== null && dragIndex !== orderIndex;
+
+  return (
+    <td
+      className={`align-top ${isDrop ? 'bg-teal-50 ring-2 ring-inset ring-[var(--cace-teal)]' : ''}`}
+      onDragOver={e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDropTargetIndex(orderIndex);
+      }}
+      onDrop={e => {
+        e.preventDefault();
+        const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        setDropTargetIndex(null);
+        setDragIndex(null);
+        if (Number.isNaN(from) || from === orderIndex) return;
+        const reordered = reorderList(orderedStudents, from, orderIndex);
+        setOrderIds(reordered.map(st => st.id));
+      }}
+    >
+      <span
+        draggable
+        onDragStart={e => {
+          setDragIndex(orderIndex);
+          e.dataTransfer.setData('text/plain', String(orderIndex));
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragEnd={() => {
+          setDragIndex(null);
+          setDropTargetIndex(null);
+        }}
+        className={`
+          inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0 print:inline
+          cursor-grab active:cursor-grabbing print:cursor-default select-none
+          ${dragIndex === orderIndex ? 'opacity-60' : ''}
+        `}
+      >
+        <Bars3Icon className="w-4 h-4 text-gray-400 print:hidden shrink-0 translate-y-0.5" aria-hidden />
+        <span className={`font-medium ${nameClassName}`}>{student.name}</span>
+        <span className="text-gray-500 text-xs whitespace-nowrap">#{student.rank}</span>
+      </span>
+    </td>
+  );
+}
+
 function PartnerMatchingContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -38,6 +113,11 @@ function PartnerMatchingContent() {
 
   const classIdFromUrl = searchParams.get('classId');
   const effectiveClassId = classIdFromUrl || currentClassId || '';
+
+  /** Custom pairing order (null = use Analysis rank order) */
+  const [orderIds, setOrderIds] = useState<string[] | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (mounted) setClasses(getClasses());
@@ -50,7 +130,30 @@ function PartnerMatchingContent() {
       .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
   }, [mounted, effectiveClassId]);
 
-  const { pairs, solo } = useMemo(() => buildPairs(rankedComplete), [rankedComplete]);
+  /** Same students (any rank/score change) → keep custom order; add/remove student → reset */
+  const rankedIdsKey = useMemo(
+    () => [...rankedComplete.map(s => s.id)].sort().join('|'),
+    [rankedComplete],
+  );
+
+  useEffect(() => {
+    setOrderIds(null);
+  }, [effectiveClassId, rankedIdsKey]);
+
+  const orderedStudents = useMemo(() => {
+    if (rankedComplete.length === 0) return [];
+    if (!orderIds || orderIds.length !== rankedComplete.length) {
+      return rankedComplete;
+    }
+    const byId = new Map(rankedComplete.map(s => [s.id, s]));
+    const ordered = orderIds.map(id => byId.get(id)).filter((x): x is StudentWithStats => x !== undefined);
+    if (ordered.length !== rankedComplete.length) return rankedComplete;
+    return ordered;
+  }, [rankedComplete, orderIds]);
+
+  const { pairs, solo } = useMemo(() => buildPairs(orderedStudents), [orderedStudents]);
+
+  const isCustomOrder = orderIds !== null;
 
   const selectedClass = classes.find(c => c.id === effectiveClassId);
 
@@ -93,21 +196,33 @@ function PartnerMatchingContent() {
           </div>
         </div>
         {effectiveClassId && rankedComplete.length > 0 && (
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="btn btn-secondary inline-flex items-center gap-2"
-          >
-            <PrinterIcon className="w-5 h-5" />
-            Print list
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary text-sm inline-flex items-center gap-2"
+              disabled={!isCustomOrder}
+              onClick={() => setOrderIds(null)}
+              title={isCustomOrder ? 'Restore Analysis rank order' : 'Already using Analysis rank'}
+            >
+              Reset order
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="btn btn-secondary inline-flex items-center gap-2"
+            >
+              <PrinterIcon className="w-5 h-5" />
+              Print list
+            </button>
+          </div>
         )}
       </div>
 
       <p className="text-gray-600 text-sm print:hidden">
-        Pairs use the same <strong>overall score</strong> ranking as the Analysis page (complete students only).
-        The <strong>highest-ranked</strong> student is paired with the <strong>lowest</strong>, second with
-        second-lowest, and so on—so the middle of the list meets the middle.
+        Pairs use the same <strong>Analysis rank</strong> order as the Analysis page (complete students only).
+        Default: highest-ranked with lowest, second with second-lowest, middle with middle.{' '}
+        <strong>Drag a name</strong> in the table onto another name to change that order; <strong>Reset order</strong>{' '}
+        restores Analysis rank.
       </p>
 
       <div className="card p-4 print:hidden">
@@ -153,7 +268,7 @@ function PartnerMatchingContent() {
             )}
             <p className="text-sm text-gray-600 mt-1">Generated {generatedLabel}</p>
             <p className="text-xs text-gray-500 mt-2">
-              Pairs from Analysis overall rank (complete students): strongest with weakest, middle with middle.
+              Pairs use current order (drag names on screen); default is Analysis rank.
             </p>
           </div>
 
@@ -167,34 +282,89 @@ function PartnerMatchingContent() {
                 </tr>
               </thead>
               <tbody>
-                {pairs.map((p, idx) => (
-                  <tr key={`${p.stronger.id}-${p.weaker.id}`}>
-                    <td className="text-gray-500 font-medium">{idx + 1}</td>
-                    <td>
-                      <span className="font-medium text-[var(--cace-navy)]">{p.stronger.name}</span>
-                      <span className="text-gray-500 text-xs ml-2">
-                        #{p.stronger.rank} · {formatScore(p.stronger)}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="font-medium text-gray-800">{p.weaker.name}</span>
-                      <span className="text-gray-500 text-xs ml-2">
-                        #{p.weaker.rank} · {formatScore(p.weaker)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {pairs.map((p, idx) => {
+                  const n = orderedStudents.length;
+                  const iStronger = idx;
+                  const iWeaker = n - 1 - idx;
+                  return (
+                    <tr key={`${p.stronger.id}-${p.weaker.id}`}>
+                      <td className="text-gray-500 font-medium">{idx + 1}</td>
+                      <PartnerNameCell
+                        student={p.stronger}
+                        orderIndex={iStronger}
+                        nameClassName="text-[var(--cace-navy)]"
+                        orderedStudents={orderedStudents}
+                        setOrderIds={setOrderIds}
+                        dragIndex={dragIndex}
+                        setDragIndex={setDragIndex}
+                        dropTargetIndex={dropTargetIndex}
+                        setDropTargetIndex={setDropTargetIndex}
+                      />
+                      <PartnerNameCell
+                        student={p.weaker}
+                        orderIndex={iWeaker}
+                        nameClassName="text-gray-800"
+                        orderedStudents={orderedStudents}
+                        setOrderIds={setOrderIds}
+                        dragIndex={dragIndex}
+                        setDragIndex={setDragIndex}
+                        dropTargetIndex={dropTargetIndex}
+                        setDropTargetIndex={setDropTargetIndex}
+                      />
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-            {solo && (
-              <div className="px-4 py-3 bg-amber-50 border-t border-amber-100 text-sm print:bg-amber-50">
-                <span className="font-medium text-amber-900">Odd number of ranked students — </span>
-                <span className="text-amber-800">
-                  <strong>{solo.name}</strong> (#{solo.rank}, {formatScore(solo)}) has no pair. Consider a trio or
-                  rotating partner.
-                </span>
-              </div>
-            )}
+            {solo && (() => {
+              const mid = Math.floor(orderedStudents.length / 2);
+              const isDrop =
+                dropTargetIndex === mid && dragIndex !== null && dragIndex !== mid;
+              return (
+                <div
+                  className={`px-4 py-3 bg-amber-50 border-t border-amber-100 text-sm print:bg-amber-50 ${isDrop ? 'ring-2 ring-inset ring-[var(--cace-teal)]' : ''}`}
+                  onDragOver={e => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    setDropTargetIndex(mid);
+                  }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                    setDropTargetIndex(null);
+                    setDragIndex(null);
+                    if (Number.isNaN(from) || from === mid) return;
+                    const reordered = reorderList(orderedStudents, from, mid);
+                    setOrderIds(reordered.map(st => st.id));
+                  }}
+                >
+                  <span className="font-medium text-amber-900">Odd number of ranked students — </span>
+                  <span className="text-amber-800">
+                    <span
+                      draggable
+                      className="inline-flex items-baseline gap-x-1.5 cursor-grab active:cursor-grabbing print:cursor-default select-none"
+                      onDragStart={e => {
+                        setDragIndex(mid);
+                        e.dataTransfer.setData('text/plain', String(mid));
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => {
+                        setDragIndex(null);
+                        setDropTargetIndex(null);
+                      }}
+                    >
+                      <Bars3Icon
+                        className="w-4 h-4 text-amber-700/70 shrink-0 translate-y-0.5 print:hidden"
+                        aria-hidden
+                      />
+                      <strong>{solo.name}</strong>
+                      <span className="text-amber-800/90 whitespace-nowrap"> (#{solo.rank})</span>
+                    </span>{' '}
+                    has no pair. Consider a trio or rotating partner.
+                  </span>
+                </div>
+              );
+            })()}
           </div>
 
           <p className="text-xs text-gray-500 print:text-sm">

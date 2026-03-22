@@ -464,8 +464,24 @@ export function restoreStudent(studentId: string, newClassId: string): void {
   });
 }
 
+/**
+ * Move student to another class with all linked data (same student id).
+ * Clears drop/promote so they start active in the new class.
+ * They disappear from the old class roster, so old-class retention is unchanged (not counted as a drop).
+ */
+export function transferStudent(studentId: string, newClassId: string): void {
+  updateStudent(studentId, {
+    classId: newClassId,
+    isDropped: false,
+    droppedDate: null,
+    isPromoted: false,
+    promotedDate: null,
+  });
+}
+
+/** @deprecated Prefer transferStudent (same behavior). */
 export function moveStudent(studentId: string, newClassId: string): void {
-  updateStudent(studentId, { classId: newClassId });
+  transferStudent(studentId, newClassId);
 }
 
 export function findStudentByName(name: string, classId: string, includeInactive = false): Student | undefined {

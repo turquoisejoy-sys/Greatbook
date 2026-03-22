@@ -9,8 +9,6 @@ import { Class, StudentWithStats, CACE_LEVELS, CACELevel } from '@/types';
 import {
   TrophyIcon,
   ExclamationTriangleIcon,
-  FunnelIcon,
-  PrinterIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import StudentQuickNotes from '@/components/StudentQuickNotes';
@@ -147,10 +145,6 @@ export default function AnalysisPage() {
     );
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   if (!mounted) {
     return <div className="animate-pulse"><div className="h-8 bg-gray-200 rounded w-48"></div></div>;
   }
@@ -172,34 +166,20 @@ export default function AnalysisPage() {
   const levelInfo = currentClass.level !== undefined ? CACE_LEVELS[currentClass.level as CACELevel] : null;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 print:space-y-4">
+    <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between print:hidden">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Student Analysis</h1>
-          <p className="text-gray-600">
-            {currentClass.name} • {levelInfo?.name || `Level ${currentClass.level}`}
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            {rankedCount} ranked, {incompleteCount} incomplete
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={handlePrint} className="btn btn-secondary">
-            <PrinterIcon className="w-5 h-5" />
-            Print
-          </button>
-        </div>
-      </div>
-
-      {/* Print Header */}
-      <div className="hidden print:block">
-        <h1 className="text-xl font-bold">Student Analysis - {currentClass.name}</h1>
-        <p className="text-sm text-gray-600">{levelInfo?.name} • {new Date().toLocaleDateString()}</p>
+      <div>
+        <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Student Analysis</h1>
+        <p className="text-gray-600">
+          {currentClass.name} • {levelInfo?.name || `Level ${currentClass.level}`}
+        </p>
+        <p className="text-sm text-gray-500 mt-1">
+          {rankedCount} ranked, {incompleteCount} incomplete
+        </p>
       </div>
 
       {/* Filter Buttons */}
-      <div className="flex gap-2 flex-wrap print:hidden">
+      <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => setFilterMode('all')}
           className={`btn ${filterMode === 'all' ? 'btn-primary' : 'btn-secondary'} text-sm`}
@@ -375,7 +355,7 @@ export default function AnalysisPage() {
       )}
 
       {/* Legend & Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print:hidden">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card">
           <h3 className="font-semibold mb-2">Color Legend</h3>
           <div className="flex flex-wrap gap-4 text-sm">
@@ -416,7 +396,7 @@ export default function AnalysisPage() {
       </div>
 
       {/* CASAS Targets Info */}
-      <div className="card print:hidden">
+      <div className="card">
         <h3 className="font-semibold mb-2">CASAS Targets (Level {currentClass.level})</h3>
         <div className="text-sm text-gray-600 grid grid-cols-2 gap-4">
           <div>

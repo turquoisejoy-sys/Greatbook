@@ -387,6 +387,22 @@ export default function Dashboard() {
                 : ' Pick a class on the page if none is selected.'}
             </p>
           </li>
+          <li className="card p-4">
+            <Link
+              href={
+                currentClassId
+                  ? `/tools/kpi-print?classId=${encodeURIComponent(currentClassId)}&year=${encodeURIComponent(selectedYear)}`
+                  : `/tools/kpi-print?year=${encodeURIComponent(selectedYear)}`
+              }
+              className="font-semibold text-[var(--cace-teal)] hover:underline"
+            >
+              Class KPI report
+            </Link>
+            <p className="text-sm text-gray-600 mt-1">
+              Print KPIs for one class (same numbers as the dashboard cards), plain-English retention notes, and
+              superlatives—everyone tied for top is listed.
+            </p>
+          </li>
         </ul>
       </div>
 

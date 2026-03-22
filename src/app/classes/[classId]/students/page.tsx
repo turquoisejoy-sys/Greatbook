@@ -10,7 +10,7 @@ import {
   updateStudent,
   dropStudent,
   promoteStudent,
-  moveStudent,
+  transferStudent,
   findStudentByName,
 } from '@/lib/storage';
 import { parseAttendanceFileFromInput } from '@/lib/parsers';
@@ -37,7 +37,7 @@ export default function StudentsPage() {
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [showEditStudent, setShowEditStudent] = useState<Student | null>(null);
-  const [showMoveStudent, setShowMoveStudent] = useState<Student | null>(null);
+  const [showTransferStudent, setShowTransferStudent] = useState<Student | null>(null);
   const [showExitStudent, setShowExitStudent] = useState<Student | null>(null);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEnrollment, setNewStudentEnrollment] = useState(
@@ -109,11 +109,11 @@ export default function StudentsPage() {
     setShowExitStudent(null);
   };
 
-  const handleMoveStudent = (targetClassId: string) => {
-    if (!showMoveStudent) return;
-    moveStudent(showMoveStudent.id, targetClassId);
+  const handleTransferStudent = (targetClassId: string) => {
+    if (!showTransferStudent) return;
+    transferStudent(showTransferStudent.id, targetClassId);
     refreshStudents();
-    setShowMoveStudent(null);
+    setShowTransferStudent(null);
   };
 
   const openEditModal = (student: Student) => {
@@ -301,19 +301,10 @@ export default function StudentsPage() {
                       >
                         <PencilIcon className="w-4 h-4" />
                       </button>
-                      {otherClasses.length > 0 && (
-                        <button
-                          onClick={() => setShowMoveStudent(student)}
-                          className="p-2 text-gray-400 hover:text-[var(--cace-navy)] hover:bg-[var(--cace-gray)] rounded-lg"
-                          title="Move to another class"
-                        >
-                          <ArrowRightIcon className="w-4 h-4" />
-                        </button>
-                      )}
                       <button
                         onClick={() => setShowExitStudent(student)}
                         className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                        title="Remove from class (drop or promote)"
+                        title="Leave class — promote, transfer, or drop"
                       >
                         <TrashIcon className="w-4 h-4" />
                       </button>
@@ -455,7 +446,7 @@ export default function StudentsPage() {
       {showExitStudent && (
         <div className="modal-overlay" onClick={() => setShowExitStudent(null)}>
           <div className="modal max-w-md" onClick={e => e.stopPropagation()}>
-            <h2 className="text-xl font-semibold mb-2">Remove from class</h2>
+            <h2 className="text-xl font-semibold mb-2">Leave this class</h2>
             <p className="text-gray-600 mb-6">
               What happened with <strong>{showExitStudent.name}</strong>?
             </p>
@@ -470,6 +461,31 @@ export default function StudentsPage() {
                   Left successfully (e.g. next level). Does not count against retention. Listed under Promoted Students.
                 </p>
               </button>
+              {otherClasses.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const s = showExitStudent;
+                    setShowExitStudent(null);
+                    setShowTransferStudent(s);
+                  }}
+                  className="w-full p-4 text-left rounded-lg border-2 border-blue-200 bg-blue-50/70 hover:bg-blue-50 transition-colors"
+                >
+                  <span className="font-semibold text-[var(--cace-navy)] inline-flex items-center gap-2">
+                    <ArrowRightIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                    Transfer to another class
+                  </span>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Same program, different section/level. All scores, attendance, notes, and report cards stay on
+                    their record. Does not count against retention for <em>this</em> class.
+                  </p>
+                </button>
+              ) : (
+                <div className="p-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">
+                  <span className="font-medium text-gray-700">Transfer</span> — add another class first (Dashboard)
+                  to move students between sections.
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleConfirmDrop}
@@ -492,27 +508,27 @@ export default function StudentsPage() {
         </div>
       )}
 
-      {/* Move Student Modal */}
-      {showMoveStudent && (
-        <div className="modal-overlay" onClick={() => setShowMoveStudent(null)}>
+      {/* Transfer: pick destination class */}
+      {showTransferStudent && (
+        <div className="modal-overlay" onClick={() => setShowTransferStudent(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">Move Student</h2>
+              <h2 className="text-xl font-semibold">Transfer student</h2>
               <button
-                onClick={() => setShowMoveStudent(null)}
+                onClick={() => setShowTransferStudent(null)}
                 className="p-1 hover:bg-gray-100 rounded"
               >
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
             <p className="text-gray-600 mb-4">
-              Move <strong>{showMoveStudent.name}</strong> to another class:
+              Transfer <strong>{showTransferStudent.name}</strong> and all their data to:
             </p>
             <div className="space-y-2">
               {otherClasses.map(cls => (
                 <button
                   key={cls.id}
-                  onClick={() => handleMoveStudent(cls.id)}
+                  onClick={() => handleTransferStudent(cls.id)}
                   className="w-full p-3 text-left rounded-lg border hover:bg-[var(--cace-gray)] hover:border-[var(--cace-teal)] transition-colors"
                 >
                   <span className="font-medium">{cls.name}</span>
@@ -521,7 +537,7 @@ export default function StudentsPage() {
               ))}
             </div>
             <button
-              onClick={() => setShowMoveStudent(null)}
+              onClick={() => setShowTransferStudent(null)}
               className="btn btn-secondary w-full mt-4"
             >
               Cancel
