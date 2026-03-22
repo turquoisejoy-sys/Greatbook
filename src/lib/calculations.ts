@@ -436,6 +436,8 @@ export function calculate30DayRetention(classId: string): RetentionResult {
   let retained = 0;
   
   for (const student of students) {
+    if (student.isPromoted) continue;
+
     const entryMonth = getStudentEntryMonth(student.id);
     if (!entryMonth) continue; // No active months, not eligible
     
@@ -502,6 +504,8 @@ export function calculateMidyearRetention(classId: string, schoolYear: string): 
   let retained = 0;
   
   for (const student of students) {
+    if (student.isPromoted) continue;
+
     const entryMonth = getStudentEntryMonth(student.id);
     if (!entryMonth) continue;
     
@@ -560,6 +564,8 @@ export function calculateEndYearRetention(classId: string, schoolYear: string): 
   let retained = 0;
   
   for (const student of students) {
+    if (student.isPromoted) continue;
+
     const entryMonth = getStudentEntryMonth(student.id);
     if (!entryMonth) continue;
     
@@ -684,8 +690,9 @@ export function calculateYTDRetention(classId: string, schoolYear: string): Rete
   const yearStart = `${startYear}-08-01`;
   const now = new Date().toISOString().split('T')[0];
   
-  // Students who enrolled from August to now
+  // Students who enrolled from August to now (promoted excluded from retention entirely)
   const eligibleStudents = students.filter(s => 
+    !s.isPromoted &&
     s.enrollmentDate >= yearStart && s.enrollmentDate <= now
   );
   

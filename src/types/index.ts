@@ -34,6 +34,8 @@ export interface Class {
   rankingWeights: RankingWeights;
   // Color Thresholds
   colorThresholds: ColorThresholds;
+  /** Last successful "Student Gains" import for this class (YYYY-MM-DD) */
+  casasGainsImportedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -60,6 +62,14 @@ export interface Student {
   notes: string;          // Personal notes (not for report cards)
   isDropped: boolean;
   droppedDate: string | null;
+  /** Left class successfully (e.g. promoted to next level) — excluded from active roster and retention */
+  isPromoted: boolean;
+  promotedDate: string | null;
+  /** From CASAS Student Gains report import (per modality) */
+  casasReadingGain: number | null;
+  casasListeningGain: number | null;
+  casasReadingLevelComplete: boolean;
+  casasListeningLevelComplete: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -221,6 +231,8 @@ export interface AttendanceImportRow {
   scheduledHours: number;
   /** Optional status from file (e.g. "DROPPED") - used to auto-ignore dropped + zero hours */
   status?: string;
+  /** When the file has per-day columns: first session date with any hours (YYYY-MM-DD) — for default enrollment */
+  suggestedEnrollmentDate?: string;
 }
 
 export interface UnitTestImportRow {

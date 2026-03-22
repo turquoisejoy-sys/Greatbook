@@ -12,6 +12,7 @@ import {
   DocumentTextIcon,
   Cog6ToothIcon,
   UserMinusIcon,
+  TrophyIcon,
   PencilSquareIcon,
   CloudIcon,
   CloudArrowUpIcon,
@@ -63,6 +64,7 @@ export default function Sidebar({
 
   const bottomLinks = [
     { href: '/dropped-students', label: 'Dropped Students', icon: UserMinusIcon },
+    { href: '/promoted-students', label: 'Promoted Students', icon: TrophyIcon },
     { href: '/settings', label: 'Settings', icon: Cog6ToothIcon },
   ];
 

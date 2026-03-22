@@ -229,6 +229,10 @@ export function getClasses(): Class[] {
   // Migration: assign academicYear to classes that don't have one
   let needsSave = false;
   classes.forEach(cls => {
+    if (cls.casasGainsImportedAt === undefined) {
+      cls.casasGainsImportedAt = null;
+      needsSave = true;
+    }
     if (!cls.academicYear) {
       cls.academicYear = getCurrentAcademicYear();
       needsSave = true;
@@ -274,6 +278,7 @@ export function createClass(name: string, schedule: string, level: CACELevel = 3
     casasListeningTarget: level < 5 ? nextLevel.listeningRange[0] : currentLevel.listeningRange[1],
     rankingWeights: { ...DEFAULT_RANKING_WEIGHTS },
     colorThresholds: { ...DEFAULT_COLOR_THRESHOLDS },
+    casasGainsImportedAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -354,7 +359,26 @@ export function setCurrentClassId(classId: string | null): void {
 // ============================================
 
 export function getStudents(): Student[] {
-  return getFromStorage<Student[]>(STORAGE_KEYS.students, []);
+  const students = getFromStorage<Student[]>(STORAGE_KEYS.students, []);
+  let needsSave = false;
+  for (const s of students) {
+    if (s.isPromoted === undefined) {
+      (s as Student).isPromoted = false;
+      (s as Student).promotedDate = null;
+      needsSave = true;
+    }
+    if (s.casasReadingGain === undefined) {
+      (s as Student).casasReadingGain = null;
+      (s as Student).casasListeningGain = null;
+      (s as Student).casasReadingLevelComplete = false;
+      (s as Student).casasListeningLevelComplete = false;
+      needsSave = true;
+    }
+  }
+  if (needsSave) {
+    saveToStorage(STORAGE_KEYS.students, students);
+  }
+  return students;
 }
 
 export function saveStudents(students: Student[]): void {
@@ -362,14 +386,21 @@ export function saveStudents(students: Student[]): void {
   triggerSync();
 }
 
-export function getStudentsByClass(classId: string, includeDropped = false): Student[] {
-  return getStudents().filter(s => 
-    s.classId === classId && (includeDropped || !s.isDropped)
-  );
+/** Active = not dropped and not promoted. `includeInactive` includes dropped and promoted (same classId). */
+export function getStudentsByClass(classId: string, includeInactive = false): Student[] {
+  return getStudents().filter(s => {
+    if (s.classId !== classId) return false;
+    const onActiveRoster = !s.isDropped && !s.isPromoted;
+    return includeInactive || onActiveRoster;
+  });
 }
 
 export function getDroppedStudents(): Student[] {
-  return getStudents().filter(s => s.isDropped);
+  return getStudents().filter(s => s.isDropped && !s.isPromoted);
+}
+
+export function getPromotedStudents(): Student[] {
+  return getStudents().filter(s => s.isPromoted);
 }
 
 export function createStudent(name: string, classId: string, enrollmentDate?: string): Student {
@@ -381,6 +412,12 @@ export function createStudent(name: string, classId: string, enrollmentDate?: st
     notes: '',
     isDropped: false,
     droppedDate: null,
+    isPromoted: false,
+    promotedDate: null,
+    casasReadingGain: null,
+    casasListeningGain: null,
+    casasReadingLevelComplete: false,
+    casasListeningLevelComplete: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -403,6 +440,17 @@ export function dropStudent(studentId: string): void {
   updateStudent(studentId, {
     isDropped: true,
     droppedDate: new Date().toISOString().split('T')[0],
+    isPromoted: false,
+    promotedDate: null,
+  });
+}
+
+export function promoteStudent(studentId: string): void {
+  updateStudent(studentId, {
+    isPromoted: true,
+    promotedDate: new Date().toISOString().split('T')[0],
+    isDropped: false,
+    droppedDate: null,
   });
 }
 
@@ -410,6 +458,8 @@ export function restoreStudent(studentId: string, newClassId: string): void {
   updateStudent(studentId, {
     isDropped: false,
     droppedDate: null,
+    isPromoted: false,
+    promotedDate: null,
     classId: newClassId,
   });
 }
@@ -418,9 +468,9 @@ export function moveStudent(studentId: string, newClassId: string): void {
   updateStudent(studentId, { classId: newClassId });
 }
 
-export function findStudentByName(name: string, classId: string, includeDropped = false): Student | undefined {
+export function findStudentByName(name: string, classId: string, includeInactive = false): Student | undefined {
   const normalizedName = name.trim().toLowerCase();
-  return getStudentsByClass(classId, includeDropped).find(
+  return getStudentsByClass(classId, includeInactive).find(
     s => s.name.trim().toLowerCase() === normalizedName
   );
 }

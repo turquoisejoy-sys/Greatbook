@@ -9,8 +9,13 @@ import { AttendanceImportRow } from '@/types';
  * 
  * Expected columns (flexible naming):
  * - Last Name + First Name (or combined "Name", "Student Name")
- * - Total Hours (or "Total Hrs", "Hrs Attended", "Hours Attended")
- * - Scheduled Hours (or "Scheduled Hrs", "Sched Hrs", "Total Scheduled")
+ * - Total Hours (or "Total Hrs_Reg + Bulk in Date Range", "Total Hrs", "Hours Attended")
+ * - Scheduled Hours (or "Class Scheduled Hrs in Date Range", "Scheduled Hrs", "Sched Hrs")
+ *
+ * If the sheet has per-day hour columns before the totals (e.g. CASAS-style exports),
+ * possible hours for each student are derived from those days from the student's first
+ * attended day through the end of the range. That fixes mid-month enrollments when the
+ * file repeats the same monthly "scheduled" total for everyone.
  * 
  * The month is specified separately when importing (not from the file).
  */
@@ -30,8 +35,27 @@ export interface AttendanceParseResult {
 const NAME_COLUMNS = ['student name', 'name', 'student', 'full name', 'learner name', 'learner'];
 const FIRST_NAME_COLUMNS = ['first name', 'first', 'firstname', 'given name', 'first_name'];
 const LAST_NAME_COLUMNS = ['last name', 'last', 'lastname', 'surname', 'family name', 'last_name'];
-const TOTAL_HOURS_COLUMNS = ['total hours', 'total hrs', 'hours attended', 'hrs attended', 'attended', 'actual hours', 'actual hrs'];
-const SCHEDULED_HOURS_COLUMNS = ['scheduled hours', 'scheduled hrs', 'sched hrs', 'total scheduled', 'scheduled', 'expected hours', 'expected hrs'];
+// Put specific export column names first so we never grab "Total Hrs_Reg/Bulk" (lifetime) instead of in-range totals.
+const TOTAL_HOURS_COLUMNS = [
+  'total hrs_reg + bulk in date range',
+  'total hours',
+  'total hrs',
+  'hours attended',
+  'hrs attended',
+  'attended',
+  'actual hours',
+  'actual hrs',
+];
+const SCHEDULED_HOURS_COLUMNS = [
+  'class scheduled hrs in date range',
+  'scheduled hours',
+  'scheduled hrs',
+  'sched hrs',
+  'total scheduled',
+  'scheduled',
+  'expected hours',
+  'expected hrs',
+];
 const STATUS_COLUMNS = ['status', 'student status', 'enrollment status', 'exit status', 'dropped', 'learner status'];
 
 /**
@@ -70,6 +94,164 @@ function parseNumber(value: unknown): number | null {
   const num = parseFloat(str);
   
   return isNaN(num) ? null : num;
+}
+
+/** Hours in a per-day cell (blank / space = not present that day) */
+function parseDailyHours(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return null;
+    return value;
+  }
+  const str = String(value).replace(/\u00a0/g, ' ').trim();
+  if (str === '' || str === ' ') return null;
+  const num = parseFloat(str.replace(/,/g, ''));
+  return Number.isNaN(num) ? null : num;
+}
+
+function isLikelyDateColumnHeader(header: string): boolean {
+  const h = normalizeString(header);
+  if (!h) return false;
+  if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(header)) return true;
+  // Excel serial day numbers often appear as integers 40000–50000+
+  if (/^\d{5}$/.test(h.replace(/\s/g, ''))) return true;
+  return false;
+}
+
+/**
+ * Per-day columns (between fixed fields and the "total in range" column).
+ * Used to compute possible hours for students who joined mid-period when the
+ * file repeats the same "scheduled hrs in date range" for everyone.
+ */
+function detectDateColumnRange(
+  headers: string[],
+  totalHoursCol: number,
+  statusCol: number,
+  lastNameCol: number,
+  firstNameCol: number,
+): { start: number; end: number } | null {
+  if (totalHoursCol <= 0) return null;
+
+  let dateStart = -1;
+  if (statusCol !== -1) {
+    dateStart = statusCol + 1;
+  } else {
+    const afterNames = Math.max(lastNameCol, firstNameCol);
+    dateStart = afterNames !== -1 ? afterNames + 1 : -1;
+  }
+
+  if (dateStart < 0 || dateStart >= totalHoursCol) {
+    // Infer: first column that looks like dates
+    for (let c = 0; c < totalHoursCol; c++) {
+      if (isLikelyDateColumnHeader(String(headers[c] || ''))) {
+        dateStart = c;
+        break;
+      }
+    }
+  }
+
+  const dateEnd = totalHoursCol - 1;
+  if (dateStart < 0 || dateStart > dateEnd) return null;
+  return { start: dateStart, end: dateEnd };
+}
+
+/** Max hours any student had on that day — treat as class capacity for that session */
+function computeDayCapacities(
+  data: unknown[][],
+  dateStart: number,
+  dateEnd: number,
+): number[] {
+  const len = dateEnd - dateStart + 1;
+  const caps = new Array(len).fill(0);
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    if (!row) continue;
+    for (let j = dateStart; j <= dateEnd; j++) {
+      const v = parseDailyHours(row[j]);
+      if (v !== null && v > caps[j - dateStart]) {
+        caps[j - dateStart] = v;
+      }
+    }
+  }
+  return caps;
+}
+
+/**
+ * Possible hours from the student's first day with any attendance in the grid
+ * through the end of the date range (sums per-day class capacity).
+ */
+function scheduledHoursFromDailyGrid(
+  row: unknown[],
+  dateStart: number,
+  dateEnd: number,
+  dayCaps: number[],
+): number | null {
+  let firstJ = -1;
+  for (let j = dateStart; j <= dateEnd; j++) {
+    if (parseDailyHours(row[j]) !== null) {
+      firstJ = j;
+      break;
+    }
+  }
+  if (firstJ === -1) return null;
+
+  let sum = 0;
+  for (let j = firstJ; j <= dateEnd; j++) {
+    sum += dayCaps[j - dateStart] ?? 0;
+  }
+  return sum > 0 ? sum : null;
+}
+
+function sumDailyHours(row: unknown[], dateStart: number, dateEnd: number): number {
+  let sum = 0;
+  for (let j = dateStart; j <= dateEnd; j++) {
+    const v = parseDailyHours(row[j]);
+    if (v !== null) sum += v;
+  }
+  return sum;
+}
+
+/** Excel serial date → UTC calendar date string */
+function excelSerialToYmd(serial: number): string {
+  const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const d = new Date(excelEpoch.getTime() + serial * msPerDay);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Column header (date string or Excel serial as string) → YYYY-MM-DD */
+function headerToIsoDate(headerCell: string): string | undefined {
+  const s = headerCell.trim();
+  if (!s) return undefined;
+  if (/^\d{5,6}$/.test(s)) {
+    const serial = parseInt(s, 10);
+    if (serial > 20000 && serial < 80000) return excelSerialToYmd(serial);
+  }
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) {
+    const month = parseInt(m[1], 10);
+    const day = parseInt(m[2], 10);
+    let year = parseInt(m[3], 10);
+    if (year < 100) year += 2000;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  return undefined;
+}
+
+/** First class session date for this row (from per-day grid headers). */
+function firstAttendanceDateFromGrid(
+  row: unknown[],
+  dateRange: { start: number; end: number },
+  headers: string[],
+): string | undefined {
+  for (let j = dateRange.start; j <= dateRange.end; j++) {
+    if (parseDailyHours(row[j]) === null) continue;
+    return headerToIsoDate(String(headers[j] ?? ''));
+  }
+  return undefined;
 }
 
 /**
@@ -147,6 +329,24 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
       return result;
     }
 
+    const dateRange = detectDateColumnRange(
+      headers,
+      totalHoursCol,
+      statusCol,
+      lastNameCol,
+      firstNameCol,
+    );
+    const dayCaps =
+      dateRange && dateRange.end >= dateRange.start
+        ? computeDayCapacities(data, dateRange.start, dateRange.end)
+        : null;
+
+    if (dateRange && dayCaps) {
+      result.warnings.push(
+        `Detected per-day hour columns (${headers[dateRange.start]} … ${headers[dateRange.end]}); possible hours for each student use class days from their first attended day onward.`,
+      );
+    }
+
     // Process data rows
     let totalPercentage = 0;
     
@@ -194,10 +394,26 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
         continue;
       }
       
-      // Get hours
-      const totalHours = parseNumber(row[totalHoursCol]);
-      const scheduledHours = parseNumber(row[scheduledHoursCol]);
-      
+      // Get hours — prefer report "in date range" total; fall back to sum of daily cells
+      let totalHours = parseNumber(row[totalHoursCol]);
+      if (totalHours === null && dateRange && dayCaps) {
+        totalHours = sumDailyHours(row, dateRange.start, dateRange.end);
+      }
+
+      let scheduledHours = parseNumber(row[scheduledHoursCol]);
+
+      if (dateRange && dayCaps) {
+        const derivedScheduled = scheduledHoursFromDailyGrid(
+          row,
+          dateRange.start,
+          dateRange.end,
+          dayCaps,
+        );
+        if (derivedScheduled !== null && derivedScheduled > 0) {
+          scheduledHours = derivedScheduled;
+        }
+      }
+
       if (totalHours === null) {
         result.warnings.push(`Row ${i + 1}: Skipped "${studentName}" - invalid total hours`);
         continue;
@@ -218,11 +434,17 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
       }
       
       const status = statusCol !== -1 ? String(row[statusCol] ?? '').trim() : undefined;
+      const suggestedEnrollmentDate =
+        dateRange && dayCaps
+          ? firstAttendanceDateFromGrid(row, dateRange, headers)
+          : undefined;
+
       const importRow: AttendanceImportRow = {
         studentName,
         totalHours,
         scheduledHours,
         ...(status ? { status } : {}),
+        ...(suggestedEnrollmentDate ? { suggestedEnrollmentDate } : {}),
       };
       
       result.records.push(importRow);

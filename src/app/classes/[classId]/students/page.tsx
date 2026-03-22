@@ -9,6 +9,7 @@ import {
   createStudent,
   updateStudent,
   dropStudent,
+  promoteStudent,
   moveStudent,
   findStudentByName,
 } from '@/lib/storage';
@@ -37,6 +38,7 @@ export default function StudentsPage() {
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [showEditStudent, setShowEditStudent] = useState<Student | null>(null);
   const [showMoveStudent, setShowMoveStudent] = useState<Student | null>(null);
+  const [showExitStudent, setShowExitStudent] = useState<Student | null>(null);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEnrollment, setNewStudentEnrollment] = useState(
     new Date().toISOString().split('T')[0]
@@ -93,10 +95,18 @@ export default function StudentsPage() {
     setShowEditStudent(null);
   };
 
-  const handleDropStudent = (student: Student) => {
-    if (!confirm(`Drop ${student.name} from this class? They will be moved to Dropped Students.`)) return;
-    dropStudent(student.id);
+  const handleConfirmDrop = () => {
+    if (!showExitStudent) return;
+    dropStudent(showExitStudent.id);
     refreshStudents();
+    setShowExitStudent(null);
+  };
+
+  const handleConfirmPromote = () => {
+    if (!showExitStudent) return;
+    promoteStudent(showExitStudent.id);
+    refreshStudents();
+    setShowExitStudent(null);
   };
 
   const handleMoveStudent = (targetClassId: string) => {
@@ -301,9 +311,9 @@ export default function StudentsPage() {
                         </button>
                       )}
                       <button
-                        onClick={() => handleDropStudent(student)}
+                        onClick={() => setShowExitStudent(student)}
                         className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                        title="Drop student"
+                        title="Remove from class (drop or promote)"
                       >
                         <TrashIcon className="w-4 h-4" />
                       </button>
@@ -437,6 +447,47 @@ export default function StudentsPage() {
                 Save Changes
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drop vs Promote Modal */}
+      {showExitStudent && (
+        <div className="modal-overlay" onClick={() => setShowExitStudent(null)}>
+          <div className="modal max-w-md" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-semibold mb-2">Remove from class</h2>
+            <p className="text-gray-600 mb-6">
+              What happened with <strong>{showExitStudent.name}</strong>?
+            </p>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={handleConfirmPromote}
+                className="w-full p-4 text-left rounded-lg border-2 border-[var(--cace-teal)]/40 bg-teal-50/80 hover:bg-teal-50 transition-colors"
+              >
+                <span className="font-semibold text-[var(--cace-navy)]">Promoted</span>
+                <p className="text-sm text-gray-600 mt-1">
+                  Left successfully (e.g. next level). Does not count against retention. Listed under Promoted Students.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDrop}
+                className="w-full p-4 text-left rounded-lg border-2 border-red-200 bg-red-50/50 hover:bg-red-50 transition-colors"
+              >
+                <span className="font-semibold text-red-800">Dropped</span>
+                <p className="text-sm text-gray-600 mt-1">
+                  Stopped attending. Counts in retention if they don&apos;t return. Listed under Dropped Students.
+                </p>
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowExitStudent(null)}
+              className="btn btn-secondary w-full mt-4"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

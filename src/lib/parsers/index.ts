@@ -29,3 +29,11 @@ export {
   type ISSTParseResult,
   type ISSTImportRow,
 } from './isst-parser';
+
+export {
+  parseStudentGainsFile,
+  parseStudentGainsFileFromInput,
+  normalizeStudentNameKey,
+  type StudentGainsParseResult,
+  type StudentGainsAggregated,
+} from './student-gains-parser';

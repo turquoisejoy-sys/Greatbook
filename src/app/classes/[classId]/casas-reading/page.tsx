@@ -11,8 +11,10 @@ import {
   updateCASASTest,
   deleteCASASTest,
   findOrCreateStudent,
+  updateClass,
+  updateStudent,
 } from '@/lib/storage';
-import { parseCASASFileFromInput } from '@/lib/parsers';
+import { parseCASASFileFromInput, parseStudentGainsFileFromInput, normalizeStudentNameKey } from '@/lib/parsers';
 import { calculateCASASAverage, calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
 import {
@@ -36,6 +38,7 @@ export default function CASASReadingPage() {
   const { setCurrentClassId, mounted } = useApp();
   const classId = params.classId as string;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const gainsFileInputRef = useRef<HTMLInputElement>(null);
 
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [studentsWithTests, setStudentsWithTests] = useState<StudentWithTests[]>([]);
@@ -47,6 +50,14 @@ export default function CASASReadingPage() {
     warnings: string[];
   } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isGainsImporting, setIsGainsImporting] = useState(false);
+  const [showGainsImportResult, setShowGainsImportResult] = useState<{
+    updated: number;
+    errors: string[];
+    warnings: string[];
+    sourceReportDateTime: string | null;
+    fileNamesNotInClass: string[];
+  } | null>(null);
   const [editingCell, setEditingCell] = useState<{ studentId: string; testIndex: number } | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editForm, setEditForm] = useState('');
@@ -154,6 +165,72 @@ export default function CASASReadingPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleStudentGainsImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentClass) return;
+
+    setIsGainsImporting(true);
+    setShowGainsImportResult(null);
+    const result = await parseStudentGainsFileFromInput(file);
+
+    if (result.errors.length > 0) {
+      setShowGainsImportResult({
+        updated: 0,
+        errors: result.errors,
+        warnings: [],
+        sourceReportDateTime: result.sourceReportDateTime,
+        fileNamesNotInClass: [],
+      });
+      setIsGainsImporting(false);
+      if (gainsFileInputRef.current) gainsFileInputRef.current.value = '';
+      return;
+    }
+
+    const roster = getStudentsByClass(classId, true);
+    let updated = 0;
+    for (const stu of roster) {
+      const key = normalizeStudentNameKey(stu.name);
+      const agg = result.byNormalizedName[key];
+      if (!agg) continue;
+      updateStudent(stu.id, {
+        casasReadingGain: agg.readingGain,
+        casasListeningGain: agg.listeningGain,
+        casasReadingLevelComplete: agg.readingLevelComplete,
+        casasListeningLevelComplete: agg.listeningLevelComplete,
+      });
+      updated++;
+    }
+
+    const importDate = new Date().toISOString().split('T')[0];
+    updateClass(classId, { casasGainsImportedAt: importDate });
+
+    const rosterKeys = new Set(roster.map(s => normalizeStudentNameKey(s.name)));
+    const fileNamesNotInClass = Object.keys(result.byNormalizedName).filter(k => !rosterKeys.has(k));
+
+    const warnings = [...result.warnings];
+    if (fileNamesNotInClass.length > 0) {
+      warnings.push(
+        `${fileNamesNotInClass.length} student(s) in the file had no name match in this class (skipped).`
+      );
+    }
+
+    setShowGainsImportResult({
+      updated,
+      errors: [],
+      warnings,
+      sourceReportDateTime: result.sourceReportDateTime,
+      fileNamesNotInClass,
+    });
+
+    const clsFresh = getClasses().find(c => c.id === classId);
+    if (clsFresh) {
+      setCurrentClass(clsFresh);
+      refreshData(clsFresh);
+    }
+    setIsGainsImporting(false);
+    if (gainsFileInputRef.current) gainsFileInputRef.current.value = '';
+  };
+
   const getProgressColor = (progress: number | null) => {
     if (!currentClass || progress === null) return '';
     const level = getColorLevel(progress, currentClass.colorThresholds);
@@ -198,8 +275,16 @@ export default function CASASReadingPage() {
           <p className="text-gray-600">
             {currentClass.name} • Target: {currentClass.casasReadingTarget} (from {currentClass.casasReadingLevelStart})
           </p>
+          {currentClass.casasGainsImportedAt && (
+            <p className="text-sm text-gray-500 mt-1">
+              Student gains last updated in app:{' '}
+              {new Date(currentClass.casasGainsImportedAt + 'T12:00:00').toLocaleDateString(undefined, {
+                dateStyle: 'medium',
+              })}
+            </p>
+          )}
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3 justify-end">
           <input
             type="file"
             ref={fileInputRef}
@@ -207,6 +292,22 @@ export default function CASASReadingPage() {
             accept=".xlsx,.xls,.csv"
             className="hidden"
           />
+          <input
+            type="file"
+            ref={gainsFileInputRef}
+            onChange={handleStudentGainsImport}
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+          />
+          <button
+            onClick={() => gainsFileInputRef.current?.click()}
+            disabled={isGainsImporting}
+            className="btn btn-secondary"
+            title="CASAS Student Gains export (reading + listening gains and level complete)"
+          >
+            <ArrowUpTrayIcon className="w-5 h-5" />
+            {isGainsImporting ? 'Importing…' : 'Import Student Gains'}
+          </button>
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
@@ -217,6 +318,53 @@ export default function CASASReadingPage() {
           </button>
         </div>
       </div>
+
+      {showGainsImportResult && (
+        <div
+          className={`card border ${
+            showGainsImportResult.errors.length > 0 ? 'bg-red-50 border-red-200' : 'bg-teal-50 border-teal-200'
+          }`}
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-900">Student Gains import</h3>
+              {showGainsImportResult.errors.length > 0 ? (
+                <ul className="mt-2 text-red-800 text-sm list-disc list-inside">
+                  {showGainsImportResult.errors.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+              ) : (
+                <>
+                  <p className="text-gray-800 mt-1">
+                    Updated <strong>{showGainsImportResult.updated}</strong> student
+                    {showGainsImportResult.updated !== 1 ? 's' : ''} on this roster (reading + listening fields).
+                  </p>
+                  {showGainsImportResult.sourceReportDateTime && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Source file report time: {showGainsImportResult.sourceReportDateTime}
+                    </p>
+                  )}
+                  {showGainsImportResult.warnings.length > 0 && (
+                    <ul className="mt-2 text-amber-900 text-sm list-disc list-inside">
+                      {showGainsImportResult.warnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowGainsImportResult(null)}
+              className="text-gray-600 hover:text-gray-900"
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Import Result */}
       {showImportResult && (
@@ -258,6 +406,12 @@ export default function CASASReadingPage() {
                 ))}
                 <th rowSpan={2} className="text-center border-l">Avg</th>
                 <th rowSpan={2} className="text-center">Progress</th>
+                <th rowSpan={2} className="text-center border-l bg-teal-50/80" title="From Student Gains import">
+                  Gain (R)
+                </th>
+                <th rowSpan={2} className="text-center bg-teal-50/80" title="CASAS Complete column, reading tests">
+                  Level Comp. (R)
+                </th>
               </tr>
               <tr>
                 {testColumns.map(num => (
@@ -270,7 +424,10 @@ export default function CASASReadingPage() {
               </tr>
             </thead>
             <tbody>
-              {studentsWithTests.map(({ student, tests, average, highest, progress }) => (
+              {studentsWithTests.map(({ student, tests, average, highest, progress }) => {
+                const gainR = student.casasReadingGain;
+                const doneR = student.casasReadingLevelComplete;
+                return (
                 <tr key={student.id}>
                   <td className="sticky left-0 bg-white font-medium z-10">
                     <StudentQuickNotes
@@ -365,8 +522,19 @@ export default function CASASReadingPage() {
                       </span>
                     ) : '—'}
                   </td>
+                  <td className="text-center text-sm font-medium border-l bg-teal-50/30">
+                    {gainR !== null && gainR !== undefined ? gainR : '—'}
+                  </td>
+                  <td className="text-center text-sm bg-teal-50/30">
+                    {doneR ? (
+                      <span className="text-green-700 font-medium">Yes</span>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -379,6 +547,11 @@ export default function CASASReadingPage() {
         <span>Progress = (Highest - {currentClass.casasReadingLevelStart}) ÷ {currentClass.casasReadingTarget - currentClass.casasReadingLevelStart} × 100</span>
         <span className="text-gray-400">|</span>
         <span className="text-gray-500">Click any cell to edit</span>
+        <span className="text-gray-400">|</span>
+        <span>
+          <strong>Gain / Level Comp. (R)</strong> come from <strong>Import Student Gains</strong> (CASAS export); date
+          shown under the title is when you last ran that import in this app.
+        </span>
       </div>
     </div>
   );

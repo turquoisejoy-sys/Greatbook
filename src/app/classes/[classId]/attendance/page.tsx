@@ -275,13 +275,33 @@ export default function AttendancePage() {
     );
     // Store ALL new student names (we'll filter out ignored ones later)
     const today = new Date().toISOString().split('T')[0];
-    setNewStudents(newStudentNames.map(name => ({ name, selected: true, enrollDate: today })));
+    setNewStudents(
+      newStudentNames.map((name) => {
+        const rec = result.records.find(
+          (r) =>
+            r.studentName.trim().toLowerCase() === name.trim().toLowerCase() && !isDroppedZero(r),
+        );
+        return {
+          name,
+          selected: true,
+          enrollDate: rec?.suggestedEnrollmentDate ?? today,
+        };
+      }),
+    );
     setMissingStudents(missingStudentsList.map(student => ({ student, selected: false })));
-    setZeroAttendanceStudents(zeroAttendanceList.map(item => ({ 
-      ...item, 
-      action: 'record' as const,  // Default to just recording 0%
-      enrollDate: item.studentId ? undefined : today  // Only new students need enrollment date
-    })));
+    setZeroAttendanceStudents(
+      zeroAttendanceList.map((item) => {
+        const rec = result.records.find(
+          (r) =>
+            r.studentName.trim().toLowerCase() === item.name.trim().toLowerCase() && !isDroppedZero(r),
+        );
+        return {
+          ...item,
+          action: 'record' as const, // Default to just recording 0%
+          enrollDate: item.studentId ? undefined : rec?.suggestedEnrollmentDate ?? today,
+        };
+      }),
+    );
     
     setIsImporting(false);
     
@@ -733,6 +753,8 @@ export default function AttendancePage() {
                     </div>
                     <p className="text-sm text-purple-700 mb-3">
                       These students have 0% attendance this month. What would you like to do?
+                      For <strong>new</strong> students, enrollment date defaults to the first class day in the file when
+                      available; otherwise today.
                     </p>
                     <div className="space-y-3">
                       {zeroAttendanceStudents.map((item, idx) => (
@@ -756,7 +778,7 @@ export default function AttendancePage() {
                               <option value="record">Record 0%</option>
                               <option value="vacation">Mark as vacation</option>
                               <option value="drop">Drop student</option>
-                              <option value="ignore">Ignore (don't import)</option>
+                              <option value="ignore">Ignore (don&apos;t import)</option>
                             </select>
                           </div>
                           {/* Show enrollment date picker for NEW students being added */}
@@ -868,7 +890,9 @@ export default function AttendancePage() {
                         </h3>
                       </div>
                       <p className="text-sm text-green-700 mb-3">
-                        These students have attendance this month but are not on your roster. Check the ones you want to add:
+                        These students have attendance this month but are not on your roster. Check the ones you want to add.
+                        When the file has per-day columns, <strong>enrollment date</strong> defaults to the{' '}
+                        <strong>first day they have hours in the file</strong> (first class attended); you can change it.
                       </p>
                       <div className="space-y-2">
                         {newStudents.map((item, idx) => (
@@ -943,7 +967,7 @@ export default function AttendancePage() {
                         </h3>
                       </div>
                       <p className="text-sm text-orange-700 mb-3">
-                        These students are on your roster but not in this month's attendance. 
+                        These students are on your roster but not in this month&apos;s attendance. 
                         Check the ones you want to drop:
                       </p>
                       <div className="space-y-2">

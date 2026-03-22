@@ -42,6 +42,7 @@ import {
   ReferenceLine,
   Cell,
   LabelList,
+  ResponsiveContainer,
 } from 'recharts';
 
 // CASAS Line Chart Component
@@ -88,43 +89,46 @@ function CASASLineChart({
   const yMax = Math.ceil(maxScore + padding);
 
   return (
-    <div className="chart-container" style={{ width: '100%', height: 100 }}>
-      <LineChart 
-        data={data} 
-        width={320} 
-        height={100} 
-        margin={{ top: 5, right: 22, bottom: 5, left: 0 }}
-        style={{ maxWidth: '100%' }}
-      >
-        <XAxis 
-          dataKey="label" 
-          tick={{ fontSize: 8 }} 
-          tickLine={false}
-          axisLine={{ stroke: '#e5e7eb' }}
-          interval={0}
-        />
-        <YAxis 
-          domain={[yMin, yMax]} 
-          tick={{ fontSize: 9 }} 
-          tickLine={false}
-          axisLine={{ stroke: '#e5e7eb' }}
-          width={30}
-        />
-        <ReferenceLine 
-          y={target} 
-          stroke="#22c55e" 
-          strokeDasharray="4 4" 
-          label={{ value: 'L4', fontSize: 9, fill: '#22c55e', position: 'right', width: 18 }}
-        />
-        <Line 
-          type="monotone" 
-          dataKey="score" 
-          stroke={color} 
-          strokeWidth={2}
-          dot={{ fill: color, strokeWidth: 0, r: 3 }}
-          isAnimationActive={false}
-        />
-      </LineChart>
+    <div className="chart-container w-full min-w-0" style={{ height: 128 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart
+          data={data}
+          margin={{ top: 8, right: 8, bottom: 4, left: 2 }}
+        >
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 8 }}
+            tickLine={false}
+            axisLine={{ stroke: '#e5e7eb' }}
+            interval={0}
+            angle={-22}
+            textAnchor="end"
+            height={46}
+            tickMargin={4}
+          />
+          <YAxis
+            domain={[yMin, yMax]}
+            tick={{ fontSize: 9 }}
+            tickLine={false}
+            axisLine={{ stroke: '#e5e7eb' }}
+            width={32}
+          />
+          <ReferenceLine
+            y={target}
+            stroke="#22c55e"
+            strokeDasharray="4 4"
+            label={{ value: 'L4', fontSize: 9, fill: '#22c55e', position: 'insideTopRight' }}
+          />
+          <Line
+            type="monotone"
+            dataKey="score"
+            stroke={color}
+            strokeWidth={2}
+            dot={{ fill: color, strokeWidth: 0, r: 3 }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -580,7 +584,15 @@ export default function ReportCardsPage() {
                   color="#3B9B8E"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Last test: {displayData.casasReadingLast?.toFixed(0) || '—'} | Target score: {currentClass.casasReadingTarget}
+                  Last test: {displayData.casasReadingLast?.toFixed(0) || '—'} | Target score:{' '}
+                  {currentClass.casasReadingTarget}
+                  <span className="text-gray-400"> · </span>
+                  <span className="text-gray-600">Gain:</span>{' '}
+                  <span className="font-semibold text-[var(--cace-navy)] tabular-nums">
+                    {selectedStudent.casasReadingGain !== null && selectedStudent.casasReadingGain !== undefined
+                      ? selectedStudent.casasReadingGain
+                      : '—'}
+                  </span>
                 </p>
               </div>
 
@@ -601,7 +613,15 @@ export default function ReportCardsPage() {
                   color="#1E3A5F"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Last test: {displayData.casasListeningLast?.toFixed(0) || '—'} | Target score: {currentClass.casasListeningTarget}
+                  Last test: {displayData.casasListeningLast?.toFixed(0) || '—'} | Target score:{' '}
+                  {currentClass.casasListeningTarget}
+                  <span className="text-gray-400"> · </span>
+                  <span className="text-gray-600">Gain:</span>{' '}
+                  <span className="font-semibold text-[var(--cace-navy)] tabular-nums">
+                    {selectedStudent.casasListeningGain !== null && selectedStudent.casasListeningGain !== undefined
+                      ? selectedStudent.casasListeningGain
+                      : '—'}
+                  </span>
                 </p>
               </div>
             </div>
@@ -711,10 +731,13 @@ export default function ReportCardsPage() {
                         const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                         return `${names[parseInt(m, 10) - 1]} ${y}`;
                       })();
+                      const count = r.dates.length;
                       return (
                         <li key={r.id} className="text-gray-700">
                           <span className="font-medium">{monthLabel}:</span>{' '}
-                          {r.dates.length ? r.dates.sort().join(', ') : '—'}
+                          <span className="tabular-nums">
+                            {count} {count === 1 ? 'time' : 'times'}
+                          </span>
                         </li>
                       );
                     })}
