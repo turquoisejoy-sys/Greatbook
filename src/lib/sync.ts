@@ -88,6 +88,35 @@ export function isSupabaseConfigured(): boolean {
   );
 }
 
+/**
+ * Supabase/PostgREST errors are plain objects with { message, details, hint, code }, not always `instanceof Error`.
+ * Without this, sync shows "Unknown error" and devtools shows `Classes upload error: {}`.
+ */
+export function getSyncErrorMessage(error: unknown): string {
+  if (error === null || error === undefined) return 'Unknown error';
+  if (error instanceof Error) return error.message || 'Unknown error';
+  if (typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof e.message === 'string' && e.message.trim()) parts.push(e.message.trim());
+    if (typeof e.details === 'string' && e.details.trim()) parts.push(e.details.trim());
+    if (typeof e.hint === 'string' && e.hint.trim()) parts.push(`Hint: ${e.hint.trim()}`);
+    if (typeof e.code === 'string' && e.code.trim()) parts.push(`[${e.code.trim()}]`);
+    if (parts.length > 0) return parts.join(' ');
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function throwSyncError(context: string, error: unknown): never {
+  const msg = getSyncErrorMessage(error);
+  console.error(`${context}:`, msg, error);
+  throw new Error(`${context}: ${msg}`);
+}
+
 // ============================================
 // Upload Functions (Local -> Supabase)
 // ============================================
@@ -103,8 +132,7 @@ export async function uploadClasses(classes: Class[]): Promise<void> {
     .upsert(data, { onConflict: 'id' });
   
   if (error) {
-    console.error('Classes upload error:', error);
-    throw error;
+    throwSyncError('Classes upload error', error);
   }
 }
 
@@ -119,8 +147,7 @@ export async function uploadStudents(students: Student[]): Promise<void> {
     .upsert(data, { onConflict: 'id' });
   
   if (error) {
-    console.error('Students upload error:', error);
-    throw error;
+    throwSyncError('Students upload error', error);
   }
 }
 
@@ -135,8 +162,7 @@ export async function uploadCASASTests(tests: CASASTest[]): Promise<void> {
     .upsert(data, { onConflict: 'id' });
   
   if (error) {
-    console.error('CASAS tests upload error:', error);
-    throw error;
+    throwSyncError('CASAS tests upload error', error);
   }
 }
 
@@ -151,8 +177,7 @@ export async function uploadUnitTests(tests: UnitTest[]): Promise<void> {
     .upsert(data, { onConflict: 'id' });
   
   if (error) {
-    console.error('Unit tests upload error:', error);
-    throw error;
+    throwSyncError('Unit tests upload error', error);
   }
 }
 
@@ -167,8 +192,7 @@ export async function uploadAttendance(attendance: Attendance[]): Promise<void> 
     .upsert(data, { onConflict: 'id' });
   
   if (error) {
-    console.error('Attendance upload error:', error);
-    throw error;
+    throwSyncError('Attendance upload error', error);
   }
 }
 
@@ -197,8 +221,7 @@ export async function uploadReportCards(reportCards: ReportCard[]): Promise<void
     .upsert(data, { onConflict: 'id' });
   
   if (error) {
-    console.error('Report cards upload error:', error);
-    throw error;
+    throwSyncError('Report cards upload error', error);
   }
 }
 
@@ -215,7 +238,7 @@ export async function uploadStudentNotes(notes: StudentNote[]): Promise<void> {
     
     if (error) {
       // Log but don't throw - table might not exist yet
-      console.log('student_notes sync skipped (table may not exist):', error.message || 'unknown');
+      console.log('student_notes sync skipped (table may not exist):', getSyncErrorMessage(error));
     }
   } catch {
     // Silently fail - table doesn't exist yet
@@ -236,7 +259,7 @@ export async function uploadISSTRecords(records: ISSTRecord[]): Promise<void> {
     
     if (error) {
       // Log but don't throw - table might not exist yet
-      console.log('isst_records sync skipped (table may not exist):', error.message || 'unknown');
+      console.log('isst_records sync skipped (table may not exist):', getSyncErrorMessage(error));
     }
   } catch {
     // Silently fail - table doesn't exist yet
@@ -255,7 +278,7 @@ export async function downloadClasses(): Promise<Class[]> {
     .from('classes')
     .select('*');
   
-  if (error) throw error;
+  if (error) throwSyncError('downloadClasses', error);
   
   return (data || []).map(row => toCamelCase(row) as unknown as Class);
 }
@@ -267,7 +290,7 @@ export async function downloadStudents(): Promise<Student[]> {
     .from('students')
     .select('*');
   
-  if (error) throw error;
+  if (error) throwSyncError('downloadStudents', error);
   
   return (data || []).map(row => toCamelCase(row) as unknown as Student);
 }
@@ -279,7 +302,7 @@ export async function downloadCASASTests(): Promise<CASASTest[]> {
     .from('casas_tests')
     .select('*');
   
-  if (error) throw error;
+  if (error) throwSyncError('downloadCASASTests', error);
   
   return (data || []).map(row => toCamelCase(row) as unknown as CASASTest);
 }
@@ -291,7 +314,7 @@ export async function downloadUnitTests(): Promise<UnitTest[]> {
     .from('unit_tests')
     .select('*');
   
-  if (error) throw error;
+  if (error) throwSyncError('downloadUnitTests', error);
   
   return (data || []).map(row => toCamelCase(row) as unknown as UnitTest);
 }
@@ -303,7 +326,7 @@ export async function downloadAttendance(): Promise<Attendance[]> {
     .from('attendance')
     .select('*');
   
-  if (error) throw error;
+  if (error) throwSyncError('downloadAttendance', error);
   
   return (data || []).map(row => toCamelCase(row) as unknown as Attendance);
 }
@@ -315,7 +338,7 @@ export async function downloadReportCards(): Promise<ReportCard[]> {
     .from('report_cards')
     .select('*');
   
-  if (error) throw error;
+  if (error) throwSyncError('downloadReportCards', error);
   
   return (data || []).map(row => toCamelCase(row) as unknown as ReportCard);
 }
@@ -376,7 +399,7 @@ export async function deleteFromCloud(table: string, id: string): Promise<void> 
     .delete()
     .eq('id', id);
   
-  if (error) throw error;
+  if (error) throwSyncError('deleteFromCloud', error);
 }
 
 // ============================================
@@ -432,8 +455,8 @@ export async function uploadAllToCloud(data: {
     
     setSyncStatus('synced');
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Sync error:', message);
+    const message = error instanceof Error ? error.message : getSyncErrorMessage(error);
+    console.error('Sync error:', message, error);
     setSyncStatus('error', message);
     throw error;
   }
@@ -475,8 +498,8 @@ export async function downloadAllFromCloud(): Promise<{
     
     return { classes, students, casasTests, unitTests, attendance, reportCards, studentNotes, isstRecords };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Download error:', message);
+    const message = error instanceof Error ? error.message : getSyncErrorMessage(error);
+    console.error('Download error:', message, error);
     setSyncStatus('error', message);
     return null;
   }

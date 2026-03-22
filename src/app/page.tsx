@@ -11,7 +11,6 @@ import {
   getAcademicYearOptions,
 } from '@/lib/storage';
 import { 
-  getClassMetrics,
   getTopPerformers,
   getAtRiskStudents,
   calculateYTDRetention,
@@ -24,7 +23,9 @@ import {
   TrashIcon,
   AcademicCapIcon,
   CheckIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline';
+import Link from 'next/link';
 
 export default function Dashboard() {
   const { currentClassId, setCurrentClassId, refreshClasses, mounted } = useApp();
@@ -51,6 +52,11 @@ export default function Dashboard() {
   const classData = useMemo(() => {
     if (!mounted || !selectedYear) return new Map<string, {
       studentCount: number;
+      promotedCount: number;
+      pctWithReadingGain: number | null;
+      pctWithListeningGain: number | null;
+      pctReadingLevelComplete: number | null;
+      pctListeningLevelComplete: number | null;
       avgAttendance: number | null;
       thirtyDayRetention: number | null;
       ytdRetention: number | null;
@@ -63,6 +69,13 @@ export default function Dashboard() {
     
     for (const cls of filteredClasses) {
       const students = getStudentsByClass(cls.id);
+      const n = students.length;
+      const promotedCount = getStudentsByClass(cls.id, true).filter(s => s.isPromoted).length;
+      const withReadingGain = students.filter(s => s.casasReadingGain != null).length;
+      const withListeningGain = students.filter(s => s.casasListeningGain != null).length;
+      const readingLevelDone = students.filter(s => s.casasReadingLevelComplete).length;
+      const listeningLevelDone = students.filter(s => s.casasListeningLevelComplete).length;
+      const pct = (count: number) => (n === 0 ? null : (count / n) * 100);
       const avgAttendance = getClassAttendanceAverage(cls.id);
       const thirtyDay = calculate30DayRetention(cls.id);
       const ytd = calculateYTDRetention(cls.id, selectedYear);
@@ -71,6 +84,11 @@ export default function Dashboard() {
       
       data.set(cls.id, {
         studentCount: students.length,
+        promotedCount,
+        pctWithReadingGain: pct(withReadingGain),
+        pctWithListeningGain: pct(withListeningGain),
+        pctReadingLevelComplete: pct(readingLevelDone),
+        pctListeningLevelComplete: pct(listeningLevelDone),
         avgAttendance,
         thirtyDayRetention: thirtyDay.rate,
         ytdRetention: ytd.rate,
@@ -125,6 +143,16 @@ export default function Dashboard() {
     if (value >= 70) return 'text-green-600';
     if (value >= 50) return 'text-yellow-600';
     return 'text-red-600';
+  };
+
+  const formatCasasPairPct = (
+    reading: number | null,
+    listening: number | null
+  ): string => {
+    if (reading === null && listening === null) return '—';
+    const r = reading === null ? '—' : `${reading.toFixed(0)}%`;
+    const l = listening === null ? '—' : `${listening.toFixed(0)}%`;
+    return `R ${r} · L ${l}`;
   };
 
   if (!mounted) {
@@ -248,6 +276,32 @@ export default function Dashboard() {
                         : '—'}
                     </span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Promoted:</span>
+                    <span className="font-medium tabular-nums">{data?.promotedCount ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between text-sm gap-2 items-baseline">
+                    <span className="text-gray-600 shrink-0" title="Active students with imported CASAS gain (Student Gains)">
+                      Students w/ gain:
+                    </span>
+                    <span className="font-medium text-right tabular-nums">
+                      {formatCasasPairPct(
+                        data?.pctWithReadingGain ?? null,
+                        data?.pctWithListeningGain ?? null
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm gap-2 items-baseline">
+                    <span className="text-gray-600 shrink-0" title="Active students marked level complete on CASAS import">
+                      Students w/ level comp.:
+                    </span>
+                    <span className="font-medium text-right tabular-nums">
+                      {formatCasasPairPct(
+                        data?.pctReadingLevelComplete ?? null,
+                        data?.pctListeningLevelComplete ?? null
+                      )}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Top Performers */}
@@ -307,6 +361,34 @@ export default function Dashboard() {
           })}
         </div>
       )}
+
+      {/* Tools */}
+      <div className="mt-10 pt-8 border-t border-gray-200">
+        <div className="flex items-center gap-2 mb-4">
+          <WrenchScrewdriverIcon className="w-6 h-6 text-[var(--cace-navy)]" />
+          <h2 className="text-lg font-bold text-[var(--cace-navy)]">Tools</h2>
+        </div>
+        <ul className="space-y-4">
+          <li className="card p-4">
+            <Link
+              href={
+                currentClassId
+                  ? `/tools/partner-matching?classId=${encodeURIComponent(currentClassId)}`
+                  : '/tools/partner-matching'
+              }
+              className="font-semibold text-[var(--cace-teal)] hover:underline"
+            >
+              Partner matching
+            </Link>
+            <p className="text-sm text-gray-600 mt-1">
+              Build pairs from overall class rank (Analysis): strongest with weakest, working toward the middle.
+              {currentClassId
+                ? ' Opens with your currently selected class.'
+                : ' Pick a class on the page if none is selected.'}
+            </p>
+          </li>
+        </ul>
+      </div>
 
       {/* Add Class Modal */}
       {showAddClass && (

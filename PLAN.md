@@ -146,7 +146,7 @@ erDiagram
 
 ### 1. Dashboard/Class Selection
 
-- Switch between morning/night sections
+- Switch between morning/night sections (and **academic year** filter for which classes appear)
 - **Quick stats at a glance:**
   - 🏆 **Top 10 students** (by overall rank)
   - ⚠️ **Bottom 10 students** (by overall rank)
@@ -154,9 +154,24 @@ erDiagram
 - Add/edit/delete classes
 - **Search bar** — find any student quickly by name (searches names only, not notes)
 - **Click any student name** → goes to their notes
-- **Retention (per class on dashboard):** **30-day** (entry month + follow-up attendance windows), **YTD** (enrollment from Aug 1 through today vs active/drop), plus **midyear** and **end-year** where implemented in code.
+- **Per-class cards** (for the selected year) show **KPIs** for that section:
+  - **Students** — count on the **active roster** (not dropped, not promoted)
+  - **Avg attendance** — class average across active students with attendance data
+  - **30-Day Retention** / **YTD Retention** — see retention bullets below
+  - **Promoted** — count of students marked **Promoted** who are still tied to this `classId` (inactive but listed under Promoted Students)
+  - **Students w/ gain** — `R xx% · L yy%`: among **active** students, percent with an imported **CASAS reading gain** / **listening gain** (non-null from **Import Student Gains**; `0` counts as having a gain)
+  - **Students w/ level comp.** — `R xx% · L yy%`: among **active** students, percent with **reading** / **listening level complete** flags from that same import
+  - If there are **no** active students, the gain and level-comp. lines show **—**
+- **Retention (used in 30-day / YTD on the card):** **30-day** (entry month + follow-up attendance windows), **YTD** (enrollment from Aug 1 through today vs active/drop), plus **midyear** and **end-year** where implemented in code.
   - **Promoted students:** not counted in any retention numerator or denominator.
   - **Dropped students:** included when evaluating retention; if they have attendance again after the drop month (“came back”), they count as retained where that logic applies.
+- **Tools** (section at the **bottom** of the dashboard, below class cards):
+  - **Partner matching** → `/tools/partner-matching`
+    - Choose a class (dropdown; link from dashboard can include `?classId=` when a class is selected).
+    - Uses the same **overall score / rank** as the **Analysis** tab (**complete** students only — same completeness rules as ranking).
+    - **Pairing:** sort by rank (1 = strongest). Pair rank **1** with **last**, **2** with **second-to-last**, and so on (middle meets middle).
+    - Table shows pair #, **higher-rank (stronger)** and **lower-rank (partner)** with rank # and overall score %.
+    - If there is an **odd** number of ranked students, the **middle** student is called out as unpaired (suggestion to use a trio or rotation).
 
 ### 2. Student Management
 
@@ -435,7 +450,8 @@ erDiagram
 
 ```
 /app
-  /page.tsx                 # Dashboard
+  /page.tsx                 # Dashboard (includes Tools → Partner matching link)
+  /tools/partner-matching/page.tsx  # Partner pairs by Analysis rank
   /classes/[id]/
     /students/page.tsx      # Student management
     /casas-reading/page.tsx
