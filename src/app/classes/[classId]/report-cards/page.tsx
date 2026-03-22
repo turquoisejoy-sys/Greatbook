@@ -24,6 +24,7 @@ import {
   getColorClass,
 } from '@/lib/calculations';
 import { Student, Class, ReportCard, StudentWithStats, CASASTest, UnitTest, Attendance, ISSTRecord, StudentNote } from '@/types';
+import { subscribeSyncStatus } from '@/lib/sync';
 import {
   PrinterIcon,
   DocumentPlusIcon,
@@ -288,6 +289,32 @@ export default function ReportCardsPage() {
       setSaveMessage('');
     }
   }, [selectedStudentId, currentClass, studentsWithRanks]);
+
+  // ISST / notes live in localStorage; re-read after cloud sync or when coming back from ISST page
+  useEffect(() => {
+    if (!selectedStudentId || !currentClass) return;
+
+    const refreshReference = () => {
+      setIsstRecords(getISSTRecordsByStudent(selectedStudentId));
+      setStudentNotes(getNotesByStudent(selectedStudentId));
+    };
+
+    const unsub = subscribeSyncStatus((status) => {
+      if (status === 'synced') refreshReference();
+    });
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshReference();
+    };
+    window.addEventListener('focus', refreshReference);
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      unsub();
+      window.removeEventListener('focus', refreshReference);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [selectedStudentId, currentClass]);
 
   const handleViewPastCard = (card: ReportCard) => {
     setViewingPastCard(card);
@@ -719,17 +746,24 @@ export default function ReportCardsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
             <div>
               <h4 className="font-medium text-gray-700 mb-2">ISST attendance</h4>
-              {isstRecords.length === 0 ? (
-                <p className="text-gray-400 text-xs">No ISST dates recorded</p>
-              ) : (
-                <ul className="space-y-2">
-                  {isstRecords
-                    .sort((a, b) => b.month.localeCompare(a.month))
-                    .map((r) => {
+              {(() => {
+                const rows = [...isstRecords]
+                  .filter((r) => Array.isArray(r.dates) && r.dates.length > 0)
+                  .sort((a, b) => b.month.localeCompare(a.month));
+                if (rows.length === 0) {
+                  return (
+                    <p className="text-gray-400 text-xs">No ISST dates recorded</p>
+                  );
+                }
+                return (
+                  <ul className="space-y-2">
+                    {rows.map((r) => {
                       const monthLabel = (() => {
                         const [y, m] = r.month.split('-');
                         const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                        return `${names[parseInt(m, 10) - 1]} ${y}`;
+                        const idx = parseInt(m, 10) - 1;
+                        const label = idx >= 0 && idx < 12 ? names[idx] : m;
+                        return `${label} ${y}`;
                       })();
                       const count = r.dates.length;
                       return (
@@ -741,8 +775,9 @@ export default function ReportCardsPage() {
                         </li>
                       );
                     })}
-                </ul>
-              )}
+                  </ul>
+                );
+              })()}
             </div>
             <div>
               <h4 className="font-medium text-gray-700 mb-2">Notes</h4>

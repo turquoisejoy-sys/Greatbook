@@ -855,10 +855,43 @@ export function migrateOldNotesToNewSystem(classId: string): void {
 // ISST Records CRUD
 // ============================================
 
+/** Supabase/text columns sometimes return dates as a JSON string instead of an array */
+function normalizeISSTDatesField(value: unknown): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value.map(String).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      return normalizeISSTDatesField(parsed);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeISSTRecord(record: ISSTRecord): ISSTRecord {
+  return {
+    ...record,
+    dates: normalizeISSTDatesField((record as { dates?: unknown }).dates),
+  };
+}
+
 function getISSTRecords(): ISSTRecord[] {
   if (typeof window === 'undefined') return [];
   const data = localStorage.getItem(STORAGE_KEYS.isstRecords);
-  return data ? JSON.parse(data) : [];
+  if (!data) return [];
+  try {
+    const raw = JSON.parse(data) as ISSTRecord[];
+    if (!Array.isArray(raw)) return [];
+    return raw.map(normalizeISSTRecord);
+  } catch {
+    return [];
+  }
 }
 
 function saveISSTRecords(records: ISSTRecord[]): void {

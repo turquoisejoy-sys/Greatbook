@@ -62,3 +62,8 @@ CREATE POLICY "gradebook_isst_records_anon_all"
   TO anon
   USING (true)
   WITH CHECK (true);
+
+-- ---------------------------------------------------------------------------
+-- 5) Tell PostgREST to reload schema cache (fixes PGRST204 right after ALTER/CREATE)
+-- ---------------------------------------------------------------------------
+NOTIFY pgrst, 'reload schema';

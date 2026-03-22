@@ -6,7 +6,7 @@ import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses, getNotesByStudent, addStudentNote, deleteStudentNote, updateStudentNote, migrateOldNotesToNewSystem } from '@/lib/storage';
 import { sortStudentsByLastName } from '@/lib/calculations';
 import { Student, Class, StudentNote } from '@/types';
-import { PlusIcon, MagnifyingGlassIcon, TrashIcon, XMarkIcon, PencilIcon, PrinterIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, TrashIcon, XMarkIcon, PencilIcon, PrinterIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
 export default function NotesPage() {
@@ -17,9 +17,10 @@ export default function NotesPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [notesByStudent, setNotesByStudent] = useState<Record<string, StudentNote[]>>({});
-  const [addingNoteForStudent, setAddingNoteForStudent] = useState<string | null>(null);
-  const [newNoteContent, setNewNoteContent] = useState('');
-  const [newNoteDate, setNewNoteDate] = useState(new Date().toISOString().split('T')[0]);
+  /** Inline composer under each student header (no modal) */
+  const [quickDraftByStudent, setQuickDraftByStudent] = useState<
+    Record<string, { content: string; date: string }>
+  >({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editNoteContent, setEditNoteContent] = useState('');
   const [editNoteDate, setEditNoteDate] = useState('');
@@ -64,18 +65,29 @@ export default function NotesPage() {
     setNotesByStudent(notesMap);
   };
 
-  const startAddingNote = (studentId: string) => {
-    setAddingNoteForStudent(studentId);
-    setNewNoteContent('');
-    setNewNoteDate(new Date().toISOString().split('T')[0]);
+  const todayStr = () => new Date().toISOString().split('T')[0];
+
+  const getQuickDraft = (studentId: string) =>
+    quickDraftByStudent[studentId] ?? { content: '', date: todayStr() };
+
+  const setQuickDraft = (studentId: string, patch: Partial<{ content: string; date: string }>) => {
+    setQuickDraftByStudent((prev) => {
+      const cur = prev[studentId] ?? { content: '', date: todayStr() };
+      return { ...prev, [studentId]: { ...cur, ...patch } };
+    });
   };
 
-  const handleAddNote = () => {
-    if (!addingNoteForStudent || !newNoteContent.trim()) return;
-    addStudentNote(addingNoteForStudent, newNoteContent.trim(), newNoteDate);
+  const saveQuickNote = (studentId: string) => {
+    const { content, date } = getQuickDraft(studentId);
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    addStudentNote(studentId, trimmed, date);
+    setQuickDraftByStudent((prev) => {
+      const next = { ...prev };
+      delete next[studentId];
+      return next;
+    });
     refreshData();
-    setAddingNoteForStudent(null);
-    setNewNoteContent('');
   };
 
   const handleDeleteNote = (noteId: string) => {
@@ -83,11 +95,6 @@ export default function NotesPage() {
       deleteStudentNote(noteId);
       refreshData();
     }
-  };
-
-  const cancelAddingNote = () => {
-    setAddingNoteForStudent(null);
-    setNewNoteContent('');
   };
 
   const startEditingNote = (note: StudentNote) => {
@@ -243,87 +250,70 @@ export default function NotesPage() {
         <div className="space-y-4">
           {filteredStudents.map(student => {
             const studentNotes = notesByStudent[student.id] || [];
-            const isAddingNote = addingNoteForStudent === student.id;
+            const quick = getQuickDraft(student.id);
+            const canSaveQuick = quick.content.trim().length > 0;
 
             return (
               <div key={student.id} id={`student-${student.id}`} className="card scroll-mt-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0 flex-1">
                     <h3 className="font-semibold text-lg text-[var(--cace-navy)]">
                       {student.name}
                     </h3>
                     <p className="text-sm text-gray-500">
                       Enrolled: {new Date(student.enrollmentDate + 'T00:00:00').toLocaleDateString()}
                     </p>
-                  </div>
-                  {!isAddingNote && (
-                    <div className="flex gap-2">
-                      {studentNotes.length > 0 && (
+                    {/* Inline composer — click and type, no modal */}
+                    <div className="mt-3 space-y-2">
+                      <label htmlFor={`quick-note-${student.id}`} className="sr-only">
+                        New note for {student.name}
+                      </label>
+                      <textarea
+                        id={`quick-note-${student.id}`}
+                        value={quick.content}
+                        onChange={(e) => setQuickDraft(student.id, { content: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault();
+                            saveQuickNote(student.id);
+                          }
+                        }}
+                        placeholder="Jot a note — Save or ⌘/Ctrl+Enter"
+                        className="input text-sm min-h-[5rem] resize-y w-full"
+                        rows={3}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          aria-label="Note date"
+                          value={quick.date}
+                          onChange={(e) => setQuickDraft(student.id, { date: e.target.value })}
+                          className="input text-xs py-1.5 max-w-[11rem]"
+                        />
                         <button
-                          onClick={() => handlePrintNotes(student, studentNotes)}
-                          className="btn btn-secondary text-sm"
-                          title="Print notes"
+                          type="button"
+                          onClick={() => saveQuickNote(student.id)}
+                          disabled={!canSaveQuick}
+                          className="btn btn-primary text-sm py-1.5"
                         >
-                          <PrinterIcon className="w-4 h-4" />
-                          Print
+                          Save note
                         </button>
-                      )}
+                      </div>
+                    </div>
+                  </div>
+                  {studentNotes.length > 0 && (
+                    <div className="flex shrink-0 gap-2">
                       <button
-                        onClick={() => startAddingNote(student.id)}
-                        className="btn btn-accent text-sm"
+                        onClick={() => handlePrintNotes(student, studentNotes)}
+                        className="btn btn-secondary text-sm"
+                        title="Print notes"
                       >
-                        <PlusIcon className="w-4 h-4" />
-                        Add
+                        <PrinterIcon className="w-4 h-4" />
+                        Print
                       </button>
                     </div>
                   )}
                 </div>
-
-                {/* Add Note Form */}
-                {isAddingNote && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-medium text-[var(--cace-navy)]">Add Note</h4>
-                      <button onClick={cancelAddingNote} className="text-gray-400 hover:text-gray-600">
-                        <XMarkIcon className="w-5 h-5" />
-                      </button>
-                    </div>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                        <input
-                          type="date"
-                          value={newNoteDate}
-                          onChange={e => setNewNoteDate(e.target.value)}
-                          className="input w-full max-w-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Note</label>
-                        <textarea
-                          value={newNoteContent}
-                          onChange={e => setNewNoteContent(e.target.value)}
-                          placeholder="Enter your note..."
-                          className="input min-h-[80px] resize-y w-full"
-                          rows={3}
-                          autoFocus
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={cancelAddingNote} className="btn btn-secondary">
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleAddNote}
-                          disabled={!newNoteContent.trim()}
-                          className="btn btn-primary"
-                        >
-                          Save Note
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 {/* Notes List */}
                 {studentNotes.length > 0 ? (
@@ -419,8 +409,8 @@ export default function NotesPage() {
                     })}
                   </div>
                 ) : (
-                  <p className="text-gray-400 italic text-sm">
-                    No notes yet. Click Add to create a note.
+                  <p className="text-gray-400 text-sm">
+                    Saved notes will show here.
                   </p>
                 )}
               </div>
