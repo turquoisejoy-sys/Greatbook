@@ -144,7 +144,12 @@ export default function StudentsPage() {
     setIsImporting(true);
     setImportResult(null);
 
-    const result = await parseAttendanceFileFromInput(pendingFile);
+    const rosterNames = new Set(
+      getStudentsByClass(classId, true).map((s) => s.name.trim().toLowerCase()),
+    );
+    const result = await parseAttendanceFileFromInput(pendingFile, {
+      rosterNormalizedNames: rosterNames,
+    });
     
     let added = 0;
     let skipped = 0;

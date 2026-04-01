@@ -15,7 +15,7 @@ import {
   updateStudent,
 } from '@/lib/storage';
 import { parseCASASFileFromInput, parseStudentGainsFileFromInput, normalizeStudentNameKey } from '@/lib/parsers';
-import { calculateCASASAverage, calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
+import { calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
 import {
   PlusIcon,
@@ -28,7 +28,6 @@ import StudentQuickNotes from '@/components/StudentQuickNotes';
 interface StudentWithTests {
   student: Student;
   tests: CASASTest[];
-  average: number | null;
   highest: number | null;
   progress: number | null;
 }
@@ -83,15 +82,13 @@ export default function CASASReadingPage() {
       const tests = getCASASTestsByStudent(student.id, 'reading')
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       maxTestCount = Math.max(maxTestCount, tests.length);
-      const average = calculateCASASAverage(tests);
       const highest = getHighestCASASScore(tests);
-      // Progress uses HIGHEST score (for level-up determination)
       const progress = calculateCASASProgress(
         highest,
         cls.casasReadingLevelStart,
         cls.casasReadingTarget
       );
-      return { student, tests, average, highest, progress };
+      return { student, tests, highest, progress };
     });
     
     data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
@@ -404,8 +401,7 @@ export default function CASASReadingPage() {
                 {testColumns.map(num => (
                   <th key={num} colSpan={3} className="text-center border-l">Test {num}</th>
                 ))}
-                <th rowSpan={2} className="text-center border-l">Avg</th>
-                <th rowSpan={2} className="text-center">Progress</th>
+                <th rowSpan={2} className="text-center border-l">Progress</th>
                 <th rowSpan={2} className="text-center border-l bg-teal-50/80" title="From Student Gains import">
                   Gain (R)
                 </th>
@@ -424,7 +420,7 @@ export default function CASASReadingPage() {
               </tr>
             </thead>
             <tbody>
-              {studentsWithTests.map(({ student, tests, average, highest, progress }) => {
+              {studentsWithTests.map(({ student, tests, highest, progress }) => {
                 const gainR = student.casasReadingGain;
                 const doneR = student.casasReadingLevelComplete;
                 return (
@@ -512,10 +508,7 @@ export default function CASASReadingPage() {
                       </React.Fragment>
                     );
                   })}
-                  <td className="text-center font-medium border-l">
-                    {average !== null ? average.toFixed(0) : '—'}
-                  </td>
-                  <td className="text-center">
+                  <td className="text-center border-l">
                     {progress !== null ? (
                       <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(progress)}`}>
                         {progress >= 100 ? 'GOAL!' : `${progress.toFixed(0)}%`}
@@ -544,7 +537,10 @@ export default function CASASReadingPage() {
       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
         <span><strong className="font-bold">Bold</strong> = Highest score (used for progress)</span>
         <span className="text-gray-400">|</span>
-        <span>Progress = (Highest - {currentClass.casasReadingLevelStart}) ÷ {currentClass.casasReadingTarget - currentClass.casasReadingLevelStart} × 100</span>
+        <span>
+          Progress = (best score − {currentClass.casasReadingLevelStart}) ÷{' '}
+          {currentClass.casasReadingTarget - currentClass.casasReadingLevelStart} × 100
+        </span>
         <span className="text-gray-400">|</span>
         <span className="text-gray-500">Click any cell to edit</span>
         <span className="text-gray-400">|</span>

@@ -173,7 +173,12 @@ export default function AttendancePage() {
     if (!importFile || !importMonth || !currentClass) return;
 
     setIsImporting(true);
-    const result = await parseAttendanceFileFromInput(importFile);
+    const rosterNames = new Set(
+      getStudentsByClass(classId, true).map((s) => s.name.trim().toLowerCase()),
+    );
+    const result = await parseAttendanceFileFromInput(importFile, {
+      rosterNormalizedNames: rosterNames,
+    });
 
     // Auto-ignore: DROPPED + zero hours — don't ask about them, don't import
     const isDroppedZero = (r: AttendanceImportRow) => {

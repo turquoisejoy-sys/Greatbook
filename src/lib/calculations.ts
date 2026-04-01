@@ -54,18 +54,18 @@ export function getHighestCASASScore(tests: CASASTest[]): number | null {
 }
 
 /**
- * Calculate progress percentage toward Level 4
- * Formula: (Average Score - Level Start) / (Target - Level Start) * 100
+ * Progress % toward target band: (score − levelStart) / (target − levelStart) × 100.
+ * For CASAS tables, pass the student's **best** (highest) test score.
  */
 export function calculateCASASProgress(
-  averageScore: number | null,
+  score: number | null,
   levelStart: number,
   target: number
 ): number | null {
-  if (averageScore === null) return null;
+  if (score === null) return null;
   const range = target - levelStart;
   if (range === 0) return 100;
-  return ((averageScore - levelStart) / range) * 100;
+  return ((score - levelStart) / range) * 100;
 }
 
 // ============================================

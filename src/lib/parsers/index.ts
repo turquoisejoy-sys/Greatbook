@@ -10,6 +10,7 @@ export {
   parseAttendanceFileFromInput,
   calculateAttendancePercentage,
   type AttendanceParseResult,
+  type AttendanceParseOptions,
 } from './attendance-parser';
 
 export { 

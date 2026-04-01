@@ -13,12 +13,20 @@ import { AttendanceImportRow } from '@/types';
  * - Scheduled Hours (or "Class Scheduled Hrs in Date Range", "Scheduled Hrs", "Sched Hrs")
  *
  * If the sheet has per-day hour columns before the totals (e.g. CASAS-style exports),
- * possible hours for each student are derived from those days from the student's first
- * attended day through the end of the range. That fixes mid-month enrollments when the
- * file repeats the same monthly "scheduled" total for everyone.
- * 
+ * you can pass **rosterNormalizedNames** (current class roster, lowercase). Then:
+ * - Students **already on the roster** use Excel's "Class Scheduled Hrs in Date Range" (same
+ *   total possible class hours as the report).
+ * - Students **not on the roster** (new enrollments you are adding this import) use
+ *   possible hours from their first attended day through month end (mid-month join fix).
+ * If **rosterNormalizedNames** is omitted, everyone uses the Excel scheduled column.
+ *
  * The month is specified separately when importing (not from the file).
  */
+
+export interface AttendanceParseOptions {
+  /** Lowercase trimmed names in the class roster. When set, only names *not* in this set use derived scheduled hours from the daily grid. */
+  rosterNormalizedNames?: Set<string>;
+}
 
 export interface AttendanceParseResult {
   records: AttendanceImportRow[];
@@ -257,7 +265,11 @@ function firstAttendanceDateFromGrid(
 /**
  * Parse an attendance Excel file
  */
-export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
+export function parseAttendanceFile(
+  file: ArrayBuffer,
+  options?: AttendanceParseOptions,
+): AttendanceParseResult {
+  const rosterNormalizedNames = options?.rosterNormalizedNames;
   const result: AttendanceParseResult = {
     records: [],
     errors: [],
@@ -342,9 +354,15 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
         : null;
 
     if (dateRange && dayCaps) {
-      result.warnings.push(
-        `Detected per-day hour columns (${headers[dateRange.start]} … ${headers[dateRange.end]}); possible hours for each student use class days from their first attended day onward.`,
-      );
+      if (rosterNormalizedNames !== undefined) {
+        result.warnings.push(
+          `Per-day columns (${headers[dateRange.start]} … ${headers[dateRange.end]}): roster students use Excel "Class Scheduled Hrs in Date Range"; names not on the roster use possible hours from first attended day through month end.`,
+        );
+      } else {
+        result.warnings.push(
+          `Per-day columns detected; using Excel "Class Scheduled Hrs in Date Range" for everyone (no roster passed — add roster context from Attendance import to adjust only new students).`,
+        );
+      }
     }
 
     // Process data rows
@@ -402,7 +420,14 @@ export function parseAttendanceFile(file: ArrayBuffer): AttendanceParseResult {
 
       let scheduledHours = parseNumber(row[scheduledHoursCol]);
 
-      if (dateRange && dayCaps) {
+      const normalizedName = studentName.trim().toLowerCase();
+      // Derived denominator only for students not on the roster yet (new this import)
+      if (
+        dateRange &&
+        dayCaps &&
+        rosterNormalizedNames !== undefined &&
+        !rosterNormalizedNames.has(normalizedName)
+      ) {
         const derivedScheduled = scheduledHoursFromDailyGrid(
           row,
           dateRange.start,
@@ -486,12 +511,15 @@ export function calculateAttendancePercentage(totalHours: number, scheduledHours
 /**
  * Parse a file from a File input element
  */
-export async function parseAttendanceFileFromInput(file: File): Promise<AttendanceParseResult> {
+export async function parseAttendanceFileFromInput(
+  file: File,
+  options?: AttendanceParseOptions,
+): Promise<AttendanceParseResult> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const data = e.target?.result as ArrayBuffer;
-      resolve(parseAttendanceFile(data));
+      resolve(parseAttendanceFile(data, options));
     };
     reader.onerror = () => {
       resolve({

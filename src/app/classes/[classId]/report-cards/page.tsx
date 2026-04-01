@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useApp } from '@/components/AppShell';
 import {
@@ -43,22 +43,58 @@ import {
   ReferenceLine,
   Cell,
   LabelList,
-  ResponsiveContainer,
 } from 'recharts';
 
-// CASAS Line Chart Component
-function CASASLineChart({ 
-  tests, 
-  target, 
+/** Fixed pixel size — ResponsiveContainer breaks in print when body uses visibility:hidden. */
+function CASASLineChart({
+  tests,
+  target,
   levelStart,
-  color = '#3B9B8E' 
-}: { 
-  tests: CASASTest[]; 
+  color = '#3B9B8E',
+  chartHeight = 140,
+}: {
+  tests: CASASTest[];
   target: number;
   levelStart: number;
   color?: string;
+  /** Shorter charts in print so Reading + Listening fit one page side-by-side */
+  chartHeight?: number;
 }) {
-  // Sort tests by date and filter valid scores
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ w: 560, h: chartHeight });
+
+  useLayoutEffect(() => {
+    setDims((d) => ({ ...d, h: chartHeight }));
+  }, [chartHeight]);
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const w = Math.floor(el.getBoundingClientRect().width);
+      if (w >= 200) {
+        setDims((d) => ({ w, h: d.h }));
+      }
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    const onPrint = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(measure);
+      });
+    };
+    window.addEventListener('beforeprint', onPrint);
+    window.addEventListener('afterprint', onPrint);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('beforeprint', onPrint);
+      window.removeEventListener('afterprint', onPrint);
+    };
+  }, []);
+
   const sortedTests = [...tests]
     .filter(t => t.score !== null)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -71,7 +107,6 @@ function CASASLineChart({
     );
   }
 
-  // Prepare data for chart - include score in label for print
   const data = sortedTests.map(test => {
     const date = new Date(test.date + 'T00:00:00');
     const label = `${date.getMonth() + 1}/${date.getDate()}-${test.formNumber}: ${test.score}`;
@@ -81,55 +116,59 @@ function CASASLineChart({
     };
   });
 
-  // Calculate Y-axis domain with some padding
   const scores = sortedTests.map(t => t.score as number);
   const minScore = Math.min(...scores, levelStart);
   const maxScore = Math.max(...scores, target);
   const padding = Math.ceil((maxScore - minScore) * 0.1) || 5;
   const yMin = Math.floor(minScore - padding);
   const yMax = Math.ceil(maxScore + padding);
+  const xAxisH = chartHeight <= 118 ? 34 : 46;
 
   return (
-    <div className="chart-container w-full min-w-0" style={{ height: 128 }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={data}
-          margin={{ top: 8, right: 8, bottom: 4, left: 2 }}
-        >
-          <XAxis
-            dataKey="label"
-            tick={{ fontSize: 8 }}
-            tickLine={false}
-            axisLine={{ stroke: '#e5e7eb' }}
-            interval={0}
-            angle={-22}
-            textAnchor="end"
-            height={46}
-            tickMargin={4}
-          />
-          <YAxis
-            domain={[yMin, yMax]}
-            tick={{ fontSize: 9 }}
-            tickLine={false}
-            axisLine={{ stroke: '#e5e7eb' }}
-            width={32}
-          />
-          <ReferenceLine
-            y={target}
-            stroke="#22c55e"
-            strokeDasharray="4 4"
-            label={{ value: 'L4', fontSize: 9, fill: '#22c55e', position: 'insideTopRight' }}
-          />
-          <Line
-            type="monotone"
-            dataKey="score"
-            stroke={color}
-            strokeWidth={2}
-            dot={{ fill: color, strokeWidth: 0, r: 3 }}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+    <div
+      ref={wrapRef}
+      className="chart-container casas-line-chart-wrap w-full min-w-0"
+      style={{ minHeight: dims.h }}
+    >
+      <LineChart
+        width={dims.w}
+        height={dims.h}
+        data={data}
+        margin={{ top: chartHeight <= 118 ? 4 : 8, right: 6, bottom: 2, left: 2 }}
+      >
+        <XAxis
+          dataKey="label"
+          tick={{ fontSize: chartHeight <= 118 ? 7 : 8 }}
+          tickLine={false}
+          axisLine={{ stroke: '#e5e7eb' }}
+          interval={0}
+          angle={-22}
+          textAnchor="end"
+          height={xAxisH}
+          tickMargin={2}
+        />
+        <YAxis
+          domain={[yMin, yMax]}
+          tick={{ fontSize: 9 }}
+          tickLine={false}
+          axisLine={{ stroke: '#e5e7eb' }}
+          width={32}
+        />
+        <ReferenceLine
+          y={target}
+          stroke="#22c55e"
+          strokeDasharray="4 4"
+          label={{ value: 'L4', fontSize: 9, fill: '#22c55e', position: 'insideTopRight' }}
+        />
+        <Line
+          type="monotone"
+          dataKey="score"
+          stroke={color}
+          strokeWidth={2}
+          dot={{ fill: color, strokeWidth: 0, r: 3 }}
+          isAnimationActive={false}
+        />
+      </LineChart>
     </div>
   );
 }
@@ -166,7 +205,40 @@ function sortAttendanceAugustToPresent(attendance: Attendance[]): Attendance[] {
 }
 
 // Monthly Attendance Bar Chart
-function AttendanceBarChart({ attendance }: { attendance: Attendance[] }) {
+function AttendanceBarChart({
+  attendance,
+  chartHeight = 150,
+}: {
+  attendance: Attendance[];
+  chartHeight?: number;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [barW, setBarW] = useState(320);
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rw = Math.floor(el.getBoundingClientRect().width);
+      if (rw >= 200) setBarW(rw);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    const onP = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(measure);
+      });
+    };
+    window.addEventListener('beforeprint', onP);
+    window.addEventListener('afterprint', onP);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('beforeprint', onP);
+      window.removeEventListener('afterprint', onP);
+    };
+  }, []);
+
   const sorted = sortAttendanceAugustToPresent(attendance);
   const data = sorted.slice(-12).map(a => {
     const monthNum = a.month.split('-')[1];
@@ -183,14 +255,15 @@ function AttendanceBarChart({ attendance }: { attendance: Attendance[] }) {
 
   if (data.length === 0) return null;
 
+  const topM = chartHeight <= 125 ? 16 : 22;
+
   return (
-    <div className="chart-container" style={{ width: '100%', height: 150 }}>
+    <div ref={wrapRef} className="chart-container w-full min-w-0" style={{ minHeight: chartHeight }}>
       <BarChart
         data={data}
-        width={320}
-        height={150}
-        margin={{ top: 22, right: 10, bottom: 5, left: 0 }}
-        style={{ maxWidth: '100%' }}
+        width={barW}
+        height={chartHeight}
+        margin={{ top: topM, right: 8, bottom: 4, left: 0 }}
       >
         <XAxis
           dataKey="month"
@@ -217,11 +290,30 @@ function AttendanceBarChart({ attendance }: { attendance: Attendance[] }) {
   );
 }
 
+/** True while print dialog / PDF preview is active — tighter charts & spacing for one-page layout */
+function usePrintMode(): boolean {
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    const on = () => setPrinting(true);
+    const off = () => setPrinting(false);
+    window.addEventListener('beforeprint', on);
+    window.addEventListener('afterprint', off);
+    return () => {
+      window.removeEventListener('beforeprint', on);
+      window.removeEventListener('afterprint', off);
+    };
+  }, []);
+  return printing;
+}
+
 export default function ReportCardsPage() {
   const params = useParams();
   const { setCurrentClassId, mounted } = useApp();
   const classId = params.classId as string;
   const printRef = useRef<HTMLDivElement>(null);
+  const printing = usePrintMode();
+  const casasChartH = printing ? 110 : 140;
+  const attendanceChartH = printing ? 118 : 150;
 
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -267,36 +359,40 @@ export default function ReportCardsPage() {
     }
   }, [classId, setCurrentClassId, mounted]);
 
+  /** Always read ranks + tests from storage so “New” report card matches Analysis / latest CASAS. */
+  const reloadLiveStudentData = useCallback(
+    (studentId: string) => {
+      if (!currentClass) return;
+      const studentList = getStudentsByClass(classId);
+      const ranked = getStudentsWithRanks(studentList, currentClass);
+      setStudentsWithRanks(ranked);
+      setSelectedStudent(ranked.find(s => s.id === studentId) || null);
+      setReadingTests(getCASASTestsByStudent(studentId, 'reading'));
+      setListeningTests(getCASASTestsByStudent(studentId, 'listening'));
+      setUnitTests(getUnitTestsByStudent(studentId));
+      setAttendance(getAttendanceByStudent(studentId));
+      setIsstRecords(getISSTRecordsByStudent(studentId));
+      setStudentNotes(getNotesByStudent(studentId));
+    },
+    [classId, currentClass],
+  );
+
   useEffect(() => {
     if (selectedStudentId && currentClass) {
-      const studentStats = studentsWithRanks.find(s => s.id === selectedStudentId);
-      setSelectedStudent(studentStats || null);
-      
-      // Load test data
-      setReadingTests(getCASASTestsByStudent(selectedStudentId, 'reading'));
-      setListeningTests(getCASASTestsByStudent(selectedStudentId, 'listening'));
-      setUnitTests(getUnitTestsByStudent(selectedStudentId));
-      setAttendance(getAttendanceByStudent(selectedStudentId));
-      setIsstRecords(getISSTRecordsByStudent(selectedStudentId));
-      setStudentNotes(getNotesByStudent(selectedStudentId));
-      
-      // Load past report cards
+      reloadLiveStudentData(selectedStudentId);
       setPastReportCards(getReportCardsByStudent(selectedStudentId));
-      
-      // Reset form
       setViewingPastCard(null);
       setTeacherComments('');
       setSaveMessage('');
     }
-  }, [selectedStudentId, currentClass, studentsWithRanks]);
+  }, [selectedStudentId, currentClass, reloadLiveStudentData]);
 
-  // ISST / notes live in localStorage; re-read after cloud sync or when coming back from ISST page
+  // Re-read from storage after sync or returning to the tab so charts/stats stay current
   useEffect(() => {
     if (!selectedStudentId || !currentClass) return;
 
     const refreshReference = () => {
-      setIsstRecords(getISSTRecordsByStudent(selectedStudentId));
-      setStudentNotes(getNotesByStudent(selectedStudentId));
+      reloadLiveStudentData(selectedStudentId);
     };
 
     const unsub = subscribeSyncStatus((status) => {
@@ -314,7 +410,15 @@ export default function ReportCardsPage() {
       window.removeEventListener('focus', refreshReference);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [selectedStudentId, currentClass]);
+  }, [selectedStudentId, currentClass, reloadLiveStudentData]);
+
+  useEffect(() => {
+    const onBeforePrint = () => {
+      if (selectedStudentId && currentClass) reloadLiveStudentData(selectedStudentId);
+    };
+    window.addEventListener('beforeprint', onBeforePrint);
+    return () => window.removeEventListener('beforeprint', onBeforePrint);
+  }, [selectedStudentId, currentClass, reloadLiveStudentData]);
 
   const handleViewPastCard = (card: ReportCard) => {
     setViewingPastCard(card);
@@ -341,6 +445,7 @@ export default function ReportCardsPage() {
     if (month >= 7 && month <= 11) setPeriodName(`Fall ${year}`);
     else if (month >= 0 && month <= 4) setPeriodName(`Spring ${year}`);
     else setPeriodName(`Summer ${year}`);
+    if (selectedStudentId) reloadLiveStudentData(selectedStudentId);
   };
 
   const handleSaveReportCard = () => {
@@ -534,20 +639,21 @@ export default function ReportCardsPage() {
         )}
       </div>
 
-      {/* Report Card Preview */}
+      {/* Report card (+ on-screen reference). Print: main card only; reference is print:hidden */}
       {selectedStudent && displayData && (
-        <div ref={printRef} className="card report-card-print print:shadow-none print:border-none">
+        <div ref={printRef} className="report-print-root space-y-6">
+        <div className="card print:shadow-none print:border-none print:px-4 print:py-3 print:text-[11px] print:leading-tight print:[&_h2]:text-lg print:[&_h3]:text-base print:[&_h4]:text-sm">
           {/* Report Card Header */}
-          <div className="text-center border-b pb-4 mb-4">
+          <div className="text-center border-b pb-4 mb-4 print:pb-2 print:mb-2">
             <h2 className="text-2xl font-bold text-[var(--cace-navy)]">
               Campbell Adult and Community Education
             </h2>
             <p className="text-[var(--cace-teal)] font-medium">Student Progress Report</p>
-            <p className="text-gray-600 mt-1">{periodName}</p>
+            <p className="text-gray-600 mt-1 print:mt-0.5">{periodName}</p>
           </div>
 
           {/* Student Info */}
-          <div className="flex justify-between items-start mb-6 pb-4 border-b">
+          <div className="flex justify-between items-start mb-6 pb-4 border-b print:mb-3 print:pb-2">
             <div>
               <h3 className="text-xl font-semibold text-[var(--cace-navy)]">
                 {selectedStudent.name}
@@ -559,19 +665,21 @@ export default function ReportCardsPage() {
             </div>
             <div className="text-right">
               {displayData.isComplete && displayData.rank !== null ? (
-                <div className="flex items-center gap-2">
-                  {displayData.rank <= 10 && (
-                    <TrophyIcon className="w-6 h-6 text-yellow-500" />
-                  )}
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Overall Performance</p>
-                    <div className="flex flex-col gap-0.5">
-                      {(['Above average', 'Average', 'Below average'] as const).map((tier) => {
-                        const isActive = getPerformanceTier(displayData.rank!, displayData.totalStudents) === tier;
-                        return (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Overall Performance</p>
+                  <div className="flex flex-col gap-0.5 items-end">
+                    {(['Above average', 'Average', 'Below average'] as const).map((tier) => {
+                      const isActive = getPerformanceTier(displayData.rank!, displayData.totalStudents) === tier;
+                      return (
+                        <div
+                          key={tier}
+                          className="inline-flex items-center justify-end gap-0.5 w-fit"
+                        >
+                          {tier === 'Above average' && isActive && (
+                            <TrophyIcon className="w-5 h-5 text-yellow-500 shrink-0 -translate-x-px" aria-hidden />
+                          )}
                           <span
-                            key={tier}
-                            className={`inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs font-medium ${
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                               isActive
                                 ? 'ring-2 ring-[var(--cace-navy)] ring-offset-0.5 text-[var(--cace-navy)]'
                                 : 'text-gray-400'
@@ -579,9 +687,9 @@ export default function ReportCardsPage() {
                           >
                             {tier}
                           </span>
-                        );
-                      })}
-                    </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
@@ -590,10 +698,10 @@ export default function ReportCardsPage() {
             </div>
           </div>
 
-          {/* CASAS Progress - Line Charts */}
-          <div className="mb-6 casas-charts-section">
-            <h4 className="font-semibold text-[var(--cace-navy)] mb-3">CASAS Progress</h4>
-            <div className="grid grid-cols-2 gap-6 print:gap-8">
+          {/* CASAS Progress - Line Charts (screen: 2-col md+; print: always 2 columns, one row) */}
+          <div className="mb-6 casas-charts-section print:mb-3">
+            <h4 className="font-semibold text-[var(--cace-navy)] mb-3 print:mb-1.5">CASAS Progress</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-2 print:gap-2 print:items-start">
               {/* CASAS Reading Chart */}
               <div>
                 <div className="flex justify-between text-sm mb-2 items-center">
@@ -609,8 +717,9 @@ export default function ReportCardsPage() {
                   target={currentClass.casasReadingTarget}
                   levelStart={currentClass.casasReadingLevelStart}
                   color="#3B9B8E"
+                  chartHeight={casasChartH}
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1 print:text-[10px] print:mt-0.5 print:leading-snug">
                   Last test: {displayData.casasReadingLast?.toFixed(0) || '—'} | Target score:{' '}
                   {currentClass.casasReadingTarget}
                   <span className="text-gray-400"> · </span>
@@ -638,8 +747,9 @@ export default function ReportCardsPage() {
                   target={currentClass.casasListeningTarget}
                   levelStart={currentClass.casasListeningLevelStart}
                   color="#1E3A5F"
+                  chartHeight={casasChartH}
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1 print:text-[10px] print:mt-0.5 print:leading-snug">
                   Last test: {displayData.casasListeningLast?.toFixed(0) || '—'} | Target score:{' '}
                   {currentClass.casasListeningTarget}
                   <span className="text-gray-400"> · </span>
@@ -654,8 +764,8 @@ export default function ReportCardsPage() {
             </div>
           </div>
 
-          {/* Unit Tests & Attendance - Detailed Scores */}
-          <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
+          {/* Unit Tests & Attendance — grid row height = left column; right column flex pushes chart to bottom */}
+          <div className="mb-6 grid grid-cols-2 gap-6 text-sm print:mb-3 print:gap-3 items-stretch">
             {/* Unit Tests */}
             <div>
               <div className="flex justify-between items-center mb-2">
@@ -692,9 +802,9 @@ export default function ReportCardsPage() {
               )}
             </div>
 
-            {/* Monthly Attendance */}
-            <div className="attendance-chart-section">
-              <div className="flex justify-between items-center mb-2">
+            {/* Monthly Attendance — bottom of chart lines up with bottom of unit test table */}
+            <div className="attendance-chart-section flex flex-col h-full min-h-0">
+              <div className="flex justify-between items-center mb-2 shrink-0">
                 <h4 className="font-semibold text-[var(--cace-navy)]">Monthly Attendance</h4>
                 {displayData.attendanceAverage !== null && (
                   <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.attendanceAverage)}`}>
@@ -703,20 +813,22 @@ export default function ReportCardsPage() {
                 )}
               </div>
               {attendance.length === 0 ? (
-                <p className="text-gray-400 text-xs">No attendance recorded</p>
+                <p className="text-gray-400 text-xs self-start">No attendance recorded</p>
               ) : (
-                <AttendanceBarChart attendance={attendance} />
+                <div className="mt-auto w-full min-w-0">
+                  <AttendanceBarChart attendance={attendance} chartHeight={attendanceChartH} />
+                </div>
               )}
             </div>
           </div>
 
           {/* Teacher Comments */}
-          <div className="border-t pt-4">
-            <h4 className="font-semibold text-[var(--cace-navy)] mb-2">Teacher Comments</h4>
+          <div className="border-t pt-4 print:pt-2">
+            <h4 className="font-semibold text-[var(--cace-navy)] mb-2 print:mb-1">Teacher Comments</h4>
             <textarea
               value={teacherComments}
               onChange={(e) => setTeacherComments(e.target.value)}
-              className="input text-sm print:border-none print:p-0 print:resize-none w-full print:min-h-[12rem]"
+              className="input text-sm print:border print:border-gray-300 print:rounded print:p-1.5 print:resize-none w-full print:min-h-[2.75rem] print:max-h-24 print:text-xs print:leading-snug"
               rows={4}
               placeholder="Comments on student progress, speaking/writing skills, areas for improvement..."
             />
@@ -737,38 +849,41 @@ export default function ReportCardsPage() {
             )}
           </div>
         </div>
-      )}
 
-      {/* Reference: ISST & Notes (below report card, hidden when printing) */}
+      {/* Reference: ISST & Notes — on-screen only; not part of printed report */}
       {selectedStudentId && (
-        <div className="card print:hidden mt-6">
+        <div className="card mt-6 print:hidden">
           <h3 className="text-sm font-semibold text-[var(--cace-navy)] mb-3">Reference for teacher comments</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
             <div>
               <h4 className="font-medium text-gray-700 mb-2">ISST attendance</h4>
               {(() => {
-                const rows = [...isstRecords]
-                  .filter((r) => Array.isArray(r.dates) && r.dates.length > 0)
-                  .sort((a, b) => b.month.localeCompare(a.month));
-                if (rows.length === 0) {
+                const monthTotals = new Map<string, number>();
+                for (const r of isstRecords) {
+                  if (!Array.isArray(r.dates) || r.dates.length === 0) continue;
+                  const key = r.month;
+                  monthTotals.set(key, (monthTotals.get(key) ?? 0) + r.dates.length);
+                }
+                const monthsSorted = [...monthTotals.keys()].sort((a, b) => b.localeCompare(a));
+                if (monthsSorted.length === 0) {
                   return (
                     <p className="text-gray-400 text-xs">No ISST dates recorded</p>
                   );
                 }
+                const formatMonthLabel = (monthKey: string) => {
+                  const [y, m] = monthKey.split('-');
+                  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                  const idx = parseInt(m, 10) - 1;
+                  const label = idx >= 0 && idx < 12 ? names[idx] : m;
+                  return `${label} ${y}`;
+                };
                 return (
                   <ul className="space-y-2">
-                    {rows.map((r) => {
-                      const monthLabel = (() => {
-                        const [y, m] = r.month.split('-');
-                        const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                        const idx = parseInt(m, 10) - 1;
-                        const label = idx >= 0 && idx < 12 ? names[idx] : m;
-                        return `${label} ${y}`;
-                      })();
-                      const count = r.dates.length;
+                    {monthsSorted.map((monthKey) => {
+                      const count = monthTotals.get(monthKey) ?? 0;
                       return (
-                        <li key={r.id} className="text-gray-700">
-                          <span className="font-medium">{monthLabel}:</span>{' '}
+                        <li key={monthKey} className="text-gray-700">
+                          <span className="font-medium">{formatMonthLabel(monthKey)}:</span>{' '}
                           <span className="tabular-nums">
                             {count} {count === 1 ? 'time' : 'times'}
                           </span>
@@ -799,6 +914,8 @@ export default function ReportCardsPage() {
           </div>
         </div>
       )}
+        </div>
+      )}
 
       {/* Empty State */}
       {!selectedStudentId && (
@@ -812,9 +929,13 @@ export default function ReportCardsPage() {
       {/* Print Styles */}
       <style jsx global>{`
         @media print {
+          @page {
+            size: letter;
+            margin: 0.35in;
+          }
           html, body {
             height: auto !important;
-            min-height: auto !important;
+            min-height: 0 !important;
             overflow: visible !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
@@ -822,38 +943,51 @@ export default function ReportCardsPage() {
           body * {
             visibility: hidden;
           }
-          .report-card-print, .report-card-print * {
+          .report-print-root,
+          .report-print-root * {
             visibility: visible;
           }
-          .report-card-print {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+          /* Flow in document instead of absolute — avoids phantom 2nd page from min-h-screen + empty main */
+          .report-print-root {
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
             width: 100% !important;
             max-width: 100% !important;
-            padding: 20px !important;
+            padding: 8px 10px !important;
             overflow: visible !important;
             max-height: none !important;
             height: auto !important;
-            min-height: auto !important;
+            min-height: 0 !important;
+            zoom: 0.94;
+          }
+          /* App shell: flex + min-h-screen reserves full viewport height when printing */
+          body > div.flex.min-h-screen {
+            min-height: 0 !important;
+            height: auto !important;
+          }
+          aside.sidebar {
+            display: none !important;
           }
           main {
             overflow: visible !important;
+            min-height: 0 !important;
             height: auto !important;
+            padding: 0 !important;
           }
           .print\\:hidden {
             display: none !important;
           }
-          /* Fix chart layout for print */
-          .casas-charts-section,
-          .attendance-chart-section {
-            page-break-inside: avoid;
-          }
-          .chart-container {
+          /* Recharts: explicit width/height from JS; keep wrappers from clipping */
+          .report-print-root .casas-charts-section .chart-container {
             overflow: visible !important;
-            padding-right: 8px;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
           }
-          .chart-container svg {
+          .report-print-root .chart-container .recharts-wrapper,
+          .report-print-root .chart-container svg {
+            max-width: 100% !important;
             overflow: visible !important;
           }
           /* Force background colors to print */
