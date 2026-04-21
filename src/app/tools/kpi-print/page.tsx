@@ -121,7 +121,7 @@ function KpiPrintContent() {
 
       <p className="text-gray-600 text-sm print:hidden">
         Pick a class and year, then print a one-page friendly summary: dashboard KPIs, how retention is
-        calculated, and superlatives (everyone tied for #1 in each category).
+        calculated, and superlatives (1st–3rd place; ties listed at each rank).
       </p>
 
       <div className="card p-4 space-y-4 print:hidden">
@@ -228,6 +228,22 @@ function KpiPrintContent() {
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
+                <dt className="text-gray-600 print:text-gray-800">Class avg CASAS reading gain</dt>
+                <dd className="font-medium tabular-nums">
+                  {snapshot.avgCasasReadingGain != null
+                    ? `${snapshot.avgCasasReadingGain.toFixed(1)} pts`
+                    : '—'}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-gray-600 print:text-gray-800">Class avg CASAS listening gain</dt>
+                <dd className="font-medium tabular-nums">
+                  {snapshot.avgCasasListeningGain != null
+                    ? `${snapshot.avgCasasListeningGain.toFixed(1)} pts`
+                    : '—'}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
                 <dt className="text-gray-600 print:text-gray-800">Students w/ level comp. (R · L)</dt>
                 <dd className="font-medium tabular-nums text-right">
                   {formatCasasPairPct(snapshot.pctReadingLevelComplete, snapshot.pctListeningLevelComplete)}
@@ -245,12 +261,22 @@ function KpiPrintContent() {
             ) : (
               <ul className="space-y-2 text-sm print:space-y-1.5">
                 {superlatives.map(row => (
-                  <li key={row.category} className="border-b border-gray-100 pb-2 last:border-0 print:border-gray-200 print:pb-1.5">
+                  <li
+                    key={row.category}
+                    className="border-b border-gray-100 pb-2 last:border-0 print:border-gray-200 print:pb-1.5"
+                  >
                     <div className="font-medium text-[var(--cace-navy)] print:text-black">{row.category}</div>
-                    <div className="text-gray-800 mt-0.5">
-                      <span className="font-semibold">{row.valueLabel}</span>
-                      <span className="text-gray-500"> — </span>
-                      {row.names.join(', ')}
+                    <div className="text-gray-800 mt-1 space-y-1 print:space-y-0.5">
+                      {row.places.map(place => (
+                        <div key={place.rank} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 print:text-gray-700 shrink-0">
+                            {place.rank === 1 ? '1st' : place.rank === 2 ? '2nd' : '3rd'}
+                          </span>
+                          <span className="font-semibold tabular-nums">{place.valueLabel}</span>
+                          <span className="text-gray-500">—</span>
+                          <span>{place.names.join(', ')}</span>
+                        </div>
+                      ))}
                     </div>
                   </li>
                 ))}
@@ -277,8 +303,9 @@ function KpiPrintContent() {
               </p>
               <p>
                 <span className="font-semibold text-gray-800 print:text-black">Superlatives:</span>{' '}
-                Top in class for each measure; ties list every name. CASAS scores use each student’s highest
-                reading/listening test score; gains come from the Student Gains import.
+                Top three distinct scores per measure (1st / 2nd / 3rd); everyone tied on a score shares that
+                rank. CASAS scores use each student’s highest reading/listening test; gains come from the
+                Student Gains import.
               </p>
             </div>
           </section>

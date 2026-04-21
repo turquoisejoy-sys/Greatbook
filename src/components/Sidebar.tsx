@@ -14,6 +14,7 @@ import {
   UserMinusIcon,
   TrophyIcon,
   PencilSquareIcon,
+  ChatBubbleLeftRightIcon,
   CloudIcon,
   CloudArrowUpIcon,
   ExclamationCircleIcon,
@@ -58,6 +59,7 @@ export default function Sidebar({
     { href: `${classBasePath}/casas-reading`, label: 'CASAS Reading', icon: AcademicCapIcon },
     { href: `${classBasePath}/casas-listening`, label: 'CASAS Listening', icon: AcademicCapIcon },
     { href: `${classBasePath}/tests`, label: 'Unit Tests', icon: ClipboardDocumentListIcon },
+    { href: `${classBasePath}/production`, label: 'Speaking & writing', icon: ChatBubbleLeftRightIcon },
     { href: `${classBasePath}/analysis`, label: 'Analysis', icon: ChartBarIcon },
     { href: `${classBasePath}/report-cards`, label: 'Report Cards', icon: DocumentTextIcon },
   ] : [];

@@ -104,7 +104,7 @@ export default function AppShell({ children }: AppShellProps) {
           syncStatus={syncStatus} 
           isCloudEnabled={isCloudEnabled} 
         />
-        <main className="flex-1 p-8 overflow-auto">
+        <main className="flex-1 min-w-0 p-8 overflow-auto">
           {children}
         </main>
       </div>

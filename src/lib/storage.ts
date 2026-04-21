@@ -3,6 +3,9 @@ import {
   Student,
   CASASTest,
   UnitTest,
+  ProductionAssignment,
+  ProductionRubricScore,
+  ProductionRubricField,
   Attendance,
   ReportCard,
   ArchivedYear,
@@ -12,6 +15,7 @@ import {
   CACE_LEVELS,
   ISSTRecord,
   StudentNote,
+  ProductionModality,
 } from '@/types';
 import { queueSync, downloadAllFromCloud, isSupabaseConfigured, deleteFromCloud } from './sync';
 
@@ -30,6 +34,8 @@ const STORAGE_KEYS = {
   currentClassId: 'gradebook_current_class_id',
   isstRecords: 'gradebook_isst_records',
   studentNotes: 'gradebook_student_notes',
+  productionAssignments: 'gradebook_production_assignments',
+  productionRubricScores: 'gradebook_production_rubric_scores',
   /** IDs of classes/user-deleted so cloud sync does not re-add them */
   deletedClassIds: 'gradebook_deleted_class_ids',
   deletedStudentIds: 'gradebook_deleted_student_ids',
@@ -337,6 +343,19 @@ export function deleteClass(classId: string): void {
   const studentNotes = getStudentNotes().filter(n => !studentIdsToDelete.has(n.studentId));
   saveStudentNotes(studentNotes);
 
+  const want = normalizeProductionClassId(classId);
+  const assignmentIdsToRemove = getProductionAssignments()
+    .filter(a => normalizeProductionClassId(a.classId) === want)
+    .map(a => a.id);
+  const productionAssignments = getProductionAssignments().filter(
+    a => normalizeProductionClassId(a.classId) !== want,
+  );
+  saveProductionAssignments(productionAssignments);
+  const productionRubricScores = getProductionRubricScores().filter(
+    s => !assignmentIdsToRemove.includes(s.assignmentId),
+  );
+  saveProductionRubricScores(productionRubricScores);
+
   // Delete from cloud (async, fire and forget)
   deleteFromCloud('classes', classId).catch(err => console.error('Failed to delete class from cloud:', err));
 
@@ -470,6 +489,8 @@ export function restoreStudent(studentId: string, newClassId: string): void {
  * They disappear from the old class roster, so old-class retention is unchanged (not counted as a drop).
  */
 export function transferStudent(studentId: string, newClassId: string): void {
+  const student = getStudents().find(s => s.id === studentId);
+  const oldClassId = student?.classId;
   updateStudent(studentId, {
     classId: newClassId,
     isDropped: false,
@@ -477,6 +498,20 @@ export function transferStudent(studentId: string, newClassId: string): void {
     isPromoted: false,
     promotedDate: null,
   });
+  if (oldClassId && oldClassId !== newClassId) {
+    const oldWant = normalizeProductionClassId(oldClassId);
+    const oldAssignmentIds = new Set(
+      getProductionAssignments()
+        .filter(a => normalizeProductionClassId(a.classId) === oldWant)
+        .map(a => a.id),
+    );
+    if (oldAssignmentIds.size > 0) {
+      const scores = getProductionRubricScores().filter(
+        s => !(s.studentId === studentId && oldAssignmentIds.has(s.assignmentId)),
+      );
+      saveProductionRubricScores(scores);
+    }
+  }
 }
 
 /** @deprecated Prefer transferStudent (same behavior). */
@@ -610,6 +645,193 @@ export function deleteUnitTest(testId: string): void {
   saveUnitTests(tests);
   // Delete from cloud
   deleteFromCloud('unit_tests', testId).catch(err => console.error('Failed to delete unit test from cloud:', err));
+}
+
+// ============================================
+// Production skills (speaking / writing rubrics) — local only (no cloud sync yet)
+// ============================================
+
+/** Normalize for matching URL class id to stored assignment.classId (trim, string). */
+function normalizeProductionClassId(id: unknown): string {
+  if (id == null) return '';
+  return String(id).trim();
+}
+
+export function getProductionAssignments(): ProductionAssignment[] {
+  const raw = getFromStorage<unknown>(STORAGE_KEYS.productionAssignments, []);
+  let rows: unknown[] = [];
+  let needsStructuralFix = false;
+
+  if (Array.isArray(raw)) {
+    rows = raw;
+  } else if (raw && typeof raw === 'object' && (raw as { id?: unknown }).id != null) {
+    // Corrupt save: one assignment stored as an object instead of an array — recover it
+    rows = [raw];
+    needsStructuralFix = true;
+  }
+
+  const objectRows = rows.filter(
+    (x): x is Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x),
+  );
+
+  let needsSave = needsStructuralFix;
+  const normalized: ProductionAssignment[] = [];
+  for (const a of objectRows) {
+    const r = a as unknown as ProductionAssignment & { modality?: ProductionModality | null };
+    const modality = r.modality;
+    if (modality == null) {
+      needsSave = true;
+      normalized.push({ ...r, modality: 'both' });
+    } else {
+      normalized.push(r);
+    }
+  }
+  if (needsSave) saveToStorage(STORAGE_KEYS.productionAssignments, normalized);
+  return normalized;
+}
+
+export function saveProductionAssignments(rows: ProductionAssignment[]): void {
+  saveToStorage(STORAGE_KEYS.productionAssignments, rows);
+}
+
+export function getProductionAssignmentsByClass(classId: string): ProductionAssignment[] {
+  const want = normalizeProductionClassId(classId);
+  if (!want) return [];
+  return getProductionAssignments()
+    .filter(a => normalizeProductionClassId(a.classId) === want)
+    .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title));
+}
+
+/** Assignments with missing/blank classId (recoverable from older saves). */
+export function getProductionAssignmentsWithoutClass(): ProductionAssignment[] {
+  return getProductionAssignments().filter(a => normalizeProductionClassId(a.classId) === '');
+}
+
+/** Set classId for assignments that have none (returns how many were fixed). */
+export function repairProductionAssignmentsMissingClassIds(classId: string): number {
+  const want = normalizeProductionClassId(classId);
+  if (!want) return 0;
+  const all = getProductionAssignments();
+  let n = 0;
+  const next = all.map(a => {
+    if (normalizeProductionClassId(a.classId) === '') {
+      n++;
+      return { ...a, classId: want, updatedAt: new Date().toISOString() };
+    }
+    return a;
+  });
+  if (n > 0) saveProductionAssignments(next);
+  return n;
+}
+
+export function moveProductionAssignmentToClass(assignmentId: string, newClassId: string): void {
+  const want = normalizeProductionClassId(newClassId);
+  if (!want) return;
+  const all = getProductionAssignments();
+  const i = all.findIndex(a => a.id === assignmentId);
+  if (i === -1) return;
+  const updated = [...all.slice(0, i), { ...all[i], classId: want, updatedAt: new Date().toISOString() }, ...all.slice(i + 1)];
+  saveProductionAssignments(updated);
+}
+
+export function addProductionAssignment(
+  classId: string,
+  title: string,
+  date: string,
+  modality: Exclude<ProductionModality, 'both'>,
+): ProductionAssignment {
+  const now = new Date().toISOString();
+  const row: ProductionAssignment = {
+    id: generateId(),
+    classId,
+    title: title.trim() || 'Untitled',
+    date,
+    modality,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const existing = getProductionAssignments();
+  saveProductionAssignments([...existing, row]);
+  return row;
+}
+
+export function updateProductionAssignment(
+  assignmentId: string,
+  updates: Partial<Pick<ProductionAssignment, 'title' | 'date'>>,
+): ProductionAssignment | null {
+  const all = getProductionAssignments();
+  const i = all.findIndex(a => a.id === assignmentId);
+  if (i === -1) return null;
+  const next = { ...all[i], ...updates, updatedAt: new Date().toISOString() };
+  if (typeof next.title === 'string') next.title = next.title.trim() || 'Untitled';
+  const updated = [...all.slice(0, i), next, ...all.slice(i + 1)];
+  saveProductionAssignments(updated);
+  return next;
+}
+
+export function deleteProductionAssignment(assignmentId: string): void {
+  const assignments = getProductionAssignments().filter(a => a.id !== assignmentId);
+  saveProductionAssignments(assignments);
+  const scores = getProductionRubricScores().filter(s => s.assignmentId !== assignmentId);
+  saveProductionRubricScores(scores);
+}
+
+export function getProductionRubricScores(): ProductionRubricScore[] {
+  const raw = getFromStorage<unknown>(STORAGE_KEYS.productionRubricScores, []);
+  return Array.isArray(raw) ? (raw as ProductionRubricScore[]) : [];
+}
+
+export function saveProductionRubricScores(rows: ProductionRubricScore[]): void {
+  saveToStorage(STORAGE_KEYS.productionRubricScores, rows);
+}
+
+export function getProductionScoresByAssignment(assignmentId: string): ProductionRubricScore[] {
+  return getProductionRubricScores().filter(s => s.assignmentId === assignmentId);
+}
+
+function newEmptyProductionScore(assignmentId: string, studentId: string): ProductionRubricScore {
+  const now = new Date().toISOString();
+  return {
+    id: generateId(),
+    assignmentId,
+    studentId,
+    speakFluency: null,
+    speakAccuracy: null,
+    speakPronunciation: null,
+    speakCommunication: null,
+    writeContent: null,
+    writeOrganization: null,
+    writeAccuracy: null,
+    writeVocabulary: null,
+    writeMechanics: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function upsertProductionRubricField(
+  assignmentId: string,
+  studentId: string,
+  field: ProductionRubricField,
+  value: number | null,
+): ProductionRubricScore {
+  const all = getProductionRubricScores();
+  const index = all.findIndex(s => s.assignmentId === assignmentId && s.studentId === studentId);
+  if (index === -1) {
+    const row = newEmptyProductionScore(assignmentId, studentId);
+    (row as ProductionRubricScore)[field] = value;
+    row.updatedAt = new Date().toISOString();
+    all.push(row);
+    saveProductionRubricScores(all);
+    return row;
+  }
+  all[index] = {
+    ...all[index],
+    [field]: value,
+    updatedAt: new Date().toISOString(),
+  };
+  saveProductionRubricScores(all);
+  return all[index];
 }
 
 // ============================================

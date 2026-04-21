@@ -95,6 +95,53 @@ export interface UnitTest {
   createdAt: string;
 }
 
+/** Speaking-only, writing-only, or legacy combined on one assignment. */
+export type ProductionModality = 'speaking' | 'writing' | 'both';
+
+/** One scored task for a class — production rubrics, 1–4 per category. */
+export interface ProductionAssignment {
+  id: string;
+  classId: string;
+  title: string;
+  date: string; // ISO date (YYYY-MM-DD)
+  modality: ProductionModality;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Per-student scores for one production assignment (local-only until cloud sync is added). */
+export interface ProductionRubricScore {
+  id: string;
+  assignmentId: string;
+  studentId: string;
+  /** Speaking rubric — 1–4 or null if not entered */
+  speakFluency: number | null;
+  speakAccuracy: number | null;
+  speakPronunciation: number | null;
+  speakCommunication: number | null;
+  /** Writing rubric — 1–4 or null */
+  writeContent: number | null;
+  writeOrganization: number | null;
+  writeAccuracy: number | null;
+  writeVocabulary: number | null;
+  writeMechanics: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ProductionRubricField = keyof Pick<
+  ProductionRubricScore,
+  | 'speakFluency'
+  | 'speakAccuracy'
+  | 'speakPronunciation'
+  | 'speakCommunication'
+  | 'writeContent'
+  | 'writeOrganization'
+  | 'writeAccuracy'
+  | 'writeVocabulary'
+  | 'writeMechanics'
+>;
+
 // Monthly Attendance
 export interface Attendance {
   id: string;

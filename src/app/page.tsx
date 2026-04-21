@@ -400,7 +400,7 @@ export default function Dashboard() {
             </Link>
             <p className="text-sm text-gray-600 mt-1">
               Print KPIs for one class (same numbers as the dashboard cards), plain-English retention notes, and
-              superlatives—everyone tied for top is listed.
+              superlatives with 1st–3rd place (ties at each rank).
             </p>
           </li>
         </ul>
