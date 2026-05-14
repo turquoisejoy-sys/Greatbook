@@ -24,6 +24,7 @@ import {
   AcademicCapIcon,
   CheckIcon,
   WrenchScrewdriverIcon,
+  ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
@@ -401,6 +402,23 @@ export default function Dashboard() {
             <p className="text-sm text-gray-600 mt-1">
               Print KPIs for one class (same numbers as the dashboard cards), plain-English retention notes, and
               superlatives with 1st–3rd place (ties at each rank).
+            </p>
+          </li>
+          <li className="card p-4">
+            <Link
+              href={
+                currentClassId
+                  ? `/tools/exit-assessment?classId=${encodeURIComponent(currentClassId)}`
+                  : '/tools/exit-assessment'
+              }
+              className="font-semibold text-[var(--cace-teal)] hover:underline inline-flex items-center gap-2"
+            >
+              <ArrowUpTrayIcon className="w-5 h-5 shrink-0" />
+              Exit test printout
+            </Link>
+            <p className="text-sm text-gray-600 mt-1">
+              Import the exit worksheet CSV to build a printable PDF, or build from a class roster.
+              Same layout as the end-of-year exit summary (two students per page).
             </p>
           </li>
         </ul>

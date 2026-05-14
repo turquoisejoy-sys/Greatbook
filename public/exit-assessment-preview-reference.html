@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Level 3 Exit Assessment — layout preview</title>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #5c5c5c;
+      --line: #c8c8c8;
+      --accent: #1e4d6b;
+      --accent-soft: #e8f0f5;
+      --paper: #fafaf8;
+      --pass: #0d5c2e;
+      --fail: #8b2942;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      font-size: 11pt;
+      line-height: 1.35;
+      color: var(--ink);
+      background: #ddd;
+    }
+
+    /* Screen: show “sheets” on gray */
+    .screen-hint {
+      max-width: 8.75in;
+      margin: 1rem auto 0;
+      padding: 0 1rem;
+      font-family: system-ui, sans-serif;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .print-page {
+      width: 8.5in;
+      min-height: 11in;
+      margin: 1rem auto;
+      padding: 0.55in 0.65in;
+      background: var(--paper);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+    }
+
+    .student {
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      margin-bottom: 0.42in;
+      overflow: hidden;
+    }
+
+    .student:last-child {
+      margin-bottom: 0;
+    }
+
+    .banner {
+      background: linear-gradient(90deg, var(--accent) 0%, #2a6a8f 100%);
+      color: #fff;
+      padding: 0.22in 0.28in;
+      font-size: 10.5pt;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.2in 0.35in;
+      padding: 0.22in 0.28in;
+      background: var(--accent-soft);
+      border-bottom: 1px solid var(--line);
+      font-size: 10.5pt;
+    }
+
+    .meta .name {
+      font-weight: 700;
+      font-size: 12pt;
+    }
+
+    .meta .right {
+      text-align: right;
+      align-self: start;
+    }
+
+    .meta .teacher {
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .class-am-pm {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35em;
+      margin-top: 0.12in;
+      font-family: system-ui, sans-serif;
+      font-size: 9.5pt;
+    }
+
+    .class-am-pm label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2em;
+      cursor: default;
+    }
+
+    .box {
+      width: 0.14in;
+      height: 0.14in;
+      border: 1.5px solid var(--ink);
+      border-radius: 1px;
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    .box.on {
+      background: var(--ink);
+    }
+
+    .section-title {
+      padding: 0.12in 0.28in;
+      font-size: 9.5pt;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .rows {
+      padding: 0.08in 0.28in 0.18in;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 0.15in;
+      align-items: baseline;
+      padding: 0.1in 0;
+      border-bottom: 1px dotted #bbb;
+      font-size: 10.5pt;
+    }
+
+    .row:last-child {
+      border-bottom: none;
+    }
+
+    .row .label {
+      font-weight: 500;
+    }
+
+    .row .label .paren {
+      font-size: 9pt;
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .row .score {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      min-width: 0.55in;
+      text-align: right;
+    }
+
+    .yn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35em;
+      font-family: system-ui, sans-serif;
+      font-size: 9pt;
+      white-space: nowrap;
+    }
+
+    .yn .pill {
+      padding: 0.05em 0.35em;
+      border-radius: 2px;
+      font-weight: 700;
+      font-size: 8.5pt;
+    }
+
+    .pill.yes {
+      background: #d4edda;
+      color: var(--pass);
+    }
+
+    .pill.no {
+      background: #f8d7da;
+      color: var(--fail);
+    }
+
+    .promo {
+      margin-top: 0.06in;
+      padding: 0.14in 0.28in;
+      background: #f4f4f0;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.35in;
+      font-size: 10.5pt;
+      font-weight: 600;
+    }
+
+    .promo-left {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .promo-title {
+      font-weight: 600;
+    }
+
+    .promo-hint {
+      margin-top: 0.06in;
+      font-weight: 400;
+      font-size: 9pt;
+      color: var(--muted);
+    }
+
+    .promo-answer {
+      font-family: system-ui, sans-serif;
+      font-size: 12pt;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    @media print {
+      html,
+      body {
+        background: #fff;
+        margin: 0;
+        padding: 0;
+        font-size: 9.75pt;
+        line-height: 1.28;
+      }
+
+      .screen-hint {
+        display: none;
+      }
+
+      /* One physical page = two students; keep pair from splitting */
+      .print-page {
+        width: 100%;
+        max-width: 100%;
+        min-height: 0;
+        height: 9.95in;
+        margin: 0;
+        padding: 0.22in 0.28in 0.28in;
+        box-shadow: none;
+        page-break-after: always;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 0.1in;
+        box-sizing: border-box;
+      }
+
+      .print-page:last-child {
+        page-break-after: auto;
+      }
+
+      .student {
+        flex: 1 1 0;
+        min-height: 0;
+        margin-bottom: 0;
+        page-break-inside: avoid;
+        break-inside: avoid;
+        overflow: visible;
+      }
+
+      .banner {
+        padding: 0.1in 0.18in;
+        font-size: 8.75pt;
+      }
+
+      .meta {
+        padding: 0.1in 0.18in;
+        gap: 0.12in 0.22in;
+        font-size: 9pt;
+      }
+
+      .meta .name {
+        font-size: 10.5pt;
+      }
+
+      .class-am-pm {
+        margin-top: 0.06in;
+        font-size: 8.75pt;
+      }
+
+      .section-title {
+        padding: 0.06in 0.18in;
+        font-size: 8.25pt;
+      }
+
+      .rows {
+        padding: 0.03in 0.18in 0.06in;
+      }
+
+      .row {
+        padding: 0.05in 0;
+        font-size: 9pt;
+        gap: 0.1in;
+      }
+
+      .row .label .paren {
+        font-size: 8pt;
+      }
+
+      .promo {
+        padding: 0.08in 0.18in;
+        font-size: 9pt;
+        gap: 0.2in;
+      }
+
+      .promo-hint {
+        margin-top: 0.04in;
+        font-size: 8pt;
+      }
+
+      .promo-answer {
+        font-size: 10.5pt;
+      }
+
+      .box {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+
+      .banner,
+      .pill.yes,
+      .pill.no {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+    }
+
+    @page {
+      size: letter portrait;
+      margin: 0.4in;
+    }
+  </style>
+</head>
+<body>
+  <p class="screen-hint">
+    Preview only — fake names/scores. Open Print dialog to check two-per-page. To move into Google Docs: Print → Save as PDF, upload to Drive, open with Google Docs (layout may shift slightly), or paste from a PDF screenshot — we can tune export once you pick the workflow.
+  </p>
+
+  <!-- Page 1: two students, AM checked -->
+  <section class="print-page" aria-label="Page 1">
+    <article class="student">
+      <div class="banner">Level 3 — Exit assessment results</div>
+      <div class="meta">
+        <div>
+          <div class="name">Jesus Ayvar</div>
+          <div class="teacher">Teacher: <strong>Katie Salsbury</strong></div>
+          <div class="class-am-pm" aria-hidden="true">
+            <span>Class:</span>
+            <label><span class="box on"></span> AM</label>
+            <label><span class="box"></span> PM</label>
+          </div>
+        </div>
+        <div class="right">
+          <div><strong>Date:</strong> June 1, 2026</div>
+        </div>
+      </div>
+      <div class="section-title">Test scores</div>
+      <div class="rows">
+        <div class="row">
+          <span class="label">CASAS Reading <span class="paren">(Pass 217+)</span></span>
+          <span class="score">224</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">CASAS Listening <span class="paren">(Pass 212+)</span></span>
+          <span class="score">218</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Oral <span class="paren">(Pass 12+ out of 16)</span></span>
+          <span class="score">14</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Writing <span class="paren">(Pass 24+ out of 36)</span></span>
+          <span class="score">22</span>
+          <span class="yn"><span class="pill no">No Pass</span></span>
+        </div>
+      </div>
+      <div class="promo">
+        <div class="promo-left">
+          <div class="promo-title">Completed level 3 and promoted to level 4</div>
+          <div class="promo-hint">(3 out of 4 tests needed to pass)</div>
+        </div>
+        <div class="promo-answer">Yes</div>
+      </div>
+    </article>
+
+    <article class="student">
+      <div class="banner">Level 3 — Exit assessment results</div>
+      <div class="meta">
+        <div>
+          <div class="name">Martha Bautista Amorocho</div>
+          <div class="teacher">Teacher: <strong>Katie Salsbury</strong></div>
+          <div class="class-am-pm">
+            <span>Class:</span>
+            <label><span class="box on"></span> AM</label>
+            <label><span class="box"></span> PM</label>
+          </div>
+        </div>
+        <div class="right">
+          <div><strong>Date:</strong> June 1, 2026</div>
+        </div>
+      </div>
+      <div class="section-title">Test scores</div>
+      <div class="rows">
+        <div class="row">
+          <span class="label">CASAS Reading <span class="paren">(Pass 217+)</span></span>
+          <span class="score">210</span>
+          <span class="yn"><span class="pill no">No Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">CASAS Listening <span class="paren">(Pass 212+)</span></span>
+          <span class="score">214</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Oral <span class="paren">(Pass 12+ out of 16)</span></span>
+          <span class="score">11</span>
+          <span class="yn"><span class="pill no">No Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Writing <span class="paren">(Pass 24+ out of 36)</span></span>
+          <span class="score">28</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+      </div>
+      <div class="promo">
+        <div class="promo-left">
+          <div class="promo-title">Completed level 3 and promoted to level 4</div>
+          <div class="promo-hint">(3 out of 4 tests needed to pass)</div>
+        </div>
+        <div class="promo-answer">No</div>
+      </div>
+    </article>
+  </section>
+
+  <!-- Page 2: PM sample -->
+  <section class="print-page" aria-label="Page 2">
+    <article class="student">
+      <div class="banner">Level 3 — Exit assessment results</div>
+      <div class="meta">
+        <div>
+          <div class="name">Giliana Antopkina</div>
+          <div class="teacher">Teacher: <strong>Katie Salsbury</strong></div>
+          <div class="class-am-pm">
+            <span>Class:</span>
+            <label><span class="box"></span> AM</label>
+            <label><span class="box on"></span> PM</label>
+          </div>
+        </div>
+        <div class="right">
+          <div><strong>Date:</strong> June 1, 2026</div>
+        </div>
+      </div>
+      <div class="section-title">Test scores</div>
+      <div class="rows">
+        <div class="row">
+          <span class="label">CASAS Reading <span class="paren">(Pass 217+)</span></span>
+          <span class="score">221</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">CASAS Listening <span class="paren">(Pass 212+)</span></span>
+          <span class="score">209</span>
+          <span class="yn"><span class="pill no">No Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Oral <span class="paren">(Pass 12+ out of 16)</span></span>
+          <span class="score">16</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Writing <span class="paren">(Pass 24+ out of 36)</span></span>
+          <span class="score">30</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+      </div>
+      <div class="promo">
+        <div class="promo-left">
+          <div class="promo-title">Completed level 3 and promoted to level 4</div>
+          <div class="promo-hint">(3 out of 4 tests needed to pass)</div>
+        </div>
+        <div class="promo-answer">Yes</div>
+      </div>
+    </article>
+
+    <article class="student">
+      <div class="banner">Level 3 — Exit assessment results</div>
+      <div class="meta">
+        <div>
+          <div class="name">Martha Benitez Molina</div>
+          <div class="teacher">Teacher: <strong>Katie Salsbury</strong></div>
+          <div class="class-am-pm">
+            <span>Class:</span>
+            <label><span class="box"></span> AM</label>
+            <label><span class="box on"></span> PM</label>
+          </div>
+        </div>
+        <div class="right">
+          <div><strong>Date:</strong> June 1, 2026</div>
+        </div>
+      </div>
+      <div class="section-title">Test scores</div>
+      <div class="rows">
+        <div class="row">
+          <span class="label">CASAS Reading <span class="paren">(Pass 217+)</span></span>
+          <span class="score">219</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">CASAS Listening <span class="paren">(Pass 212+)</span></span>
+          <span class="score">216</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Oral <span class="paren">(Pass 12+ out of 16)</span></span>
+          <span class="score">15</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Writing <span class="paren">(Pass 24+ out of 36)</span></span>
+          <span class="score">26</span>
+          <span class="yn"><span class="pill yes">Pass</span></span>
+        </div>
+      </div>
+      <div class="promo">
+        <div class="promo-left">
+          <div class="promo-title">Completed level 3 and promoted to level 4</div>
+          <div class="promo-hint">(3 out of 4 tests needed to pass)</div>
+        </div>
+        <div class="promo-answer">Yes</div>
+      </div>
+    </article>
+  </section>
+</body>
+</html>

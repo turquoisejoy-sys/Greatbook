@@ -1,0 +1,338 @@
+/*
+ * Ported from assesment/exit-assessment-preview.html — class names prefixed with .ea-
+ * Screen: block flow + student spacing; print: flex page + flex students (matches reference).
+ */
+
+.ea-print-root {
+  --ea-ink: #1a1a1a;
+  --ea-muted: #5c5c5c;
+  --ea-line: #c8c8c8;
+  --ea-accent: #1e4d6b;
+  --ea-accent-soft: #e8f0f5;
+  --ea-paper: #fafaf8;
+  --ea-pass: #0d5c2e;
+  --ea-fail: #8b2942;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  font-size: 11pt;
+  line-height: 1.35;
+  color: var(--ea-ink);
+  box-sizing: border-box;
+}
+
+.ea-print-root *,
+.ea-print-root *::before,
+.ea-print-root *::after {
+  box-sizing: border-box;
+}
+
+.ea-screen-hint {
+  max-width: 8.75in;
+  margin: 1rem auto 0;
+  padding: 0 1rem;
+  font-family: system-ui, sans-serif;
+  font-size: 0.85rem;
+  color: var(--ea-muted);
+}
+
+/* Screen: same as reference .print-page (no flex) */
+.ea-print-page {
+  width: 8.5in;
+  min-height: 11in;
+  margin: 1rem auto;
+  padding: 0.55in 0.65in;
+  background: var(--ea-paper);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* Screen: same as reference .student */
+.ea-student {
+  border: 1px solid var(--ea-line);
+  border-radius: 2px;
+  margin-bottom: 0.42in;
+  overflow: hidden;
+}
+
+.ea-student:last-child {
+  margin-bottom: 0;
+}
+
+.ea-banner {
+  background: linear-gradient(90deg, var(--ea-accent) 0%, #2a6a8f 100%);
+  color: #fff;
+  padding: 0.22in 0.28in;
+  font-size: 10.5pt;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ea-meta {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2in 0.35in;
+  padding: 0.22in 0.28in;
+  background: var(--ea-accent-soft);
+  border-bottom: 1px solid var(--ea-line);
+  font-size: 10.5pt;
+}
+
+.ea-meta .ea-name {
+  font-weight: 700;
+  font-size: 12pt;
+}
+
+.ea-meta .ea-right {
+  text-align: right;
+  align-self: start;
+}
+
+.ea-meta .ea-teacher {
+  color: var(--ea-muted);
+  font-weight: 400;
+}
+
+.ea-class-am-pm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  margin-top: 0.12in;
+  font-family: system-ui, sans-serif;
+  font-size: 9.5pt;
+}
+
+.ea-class-am-pm label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  cursor: default;
+}
+
+.ea-box {
+  width: 0.14in;
+  height: 0.14in;
+  border: 1.5px solid var(--ea-ink);
+  border-radius: 1px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.ea-box.ea-on {
+  background: var(--ea-ink);
+}
+
+.ea-section-title {
+  padding: 0.12in 0.28in;
+  font-size: 9.5pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ea-accent);
+  border-bottom: 1px solid var(--ea-line);
+}
+
+.ea-rows {
+  padding: 0.08in 0.28in 0.18in;
+}
+
+.ea-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.15in;
+  align-items: baseline;
+  padding: 0.1in 0;
+  border-bottom: 1px dotted #bbb;
+  font-size: 10.5pt;
+}
+
+.ea-row:last-child {
+  border-bottom: none;
+}
+
+.ea-row .ea-label {
+  font-weight: 500;
+}
+
+.ea-row .ea-label .ea-paren {
+  font-size: 9pt;
+  color: var(--ea-muted);
+  font-weight: 400;
+}
+
+.ea-row .ea-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  min-width: 0.55in;
+  text-align: right;
+}
+
+.ea-yn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  font-family: system-ui, sans-serif;
+  font-size: 9pt;
+  white-space: nowrap;
+}
+
+.ea-yn .ea-pill {
+  padding: 0.05em 0.35em;
+  border-radius: 2px;
+  font-weight: 700;
+  font-size: 8.5pt;
+}
+
+.ea-pill.ea-yes {
+  background: #d4edda;
+  color: var(--ea-pass);
+}
+
+.ea-pill.ea-no {
+  background: #f8d7da;
+  color: var(--ea-fail);
+}
+
+.ea-promo {
+  margin-top: 0.06in;
+  padding: 0.14in 0.28in;
+  background: #f4f4f0;
+  border-top: 1px solid var(--ea-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.35in;
+  font-size: 10.5pt;
+  font-weight: 600;
+}
+
+.ea-promo-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.ea-promo-title {
+  font-weight: 600;
+}
+
+.ea-promo-hint {
+  margin-top: 0.06in;
+  font-weight: 400;
+  font-size: 9pt;
+  color: var(--ea-muted);
+}
+
+.ea-promo-answer {
+  font-family: system-ui, sans-serif;
+  font-size: 12pt;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+@media print {
+  .ea-screen-hint {
+    display: none;
+  }
+
+  .ea-print-root {
+    font-size: 9.75pt;
+    line-height: 1.28;
+  }
+
+  /* Reference: one physical page = two students */
+  .ea-print-page {
+    width: 100%;
+    max-width: 100%;
+    min-height: 0;
+    height: 9.95in;
+    margin: 0;
+    padding: 0.22in 0.28in 0.28in;
+    box-shadow: none;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.1in;
+    box-sizing: border-box;
+  }
+
+  .ea-print-page:last-child {
+    page-break-after: auto;
+  }
+
+  .ea-student {
+    flex: 1 1 0;
+    min-height: 0;
+    margin-bottom: 0;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    overflow: visible;
+  }
+
+  .ea-banner {
+    padding: 0.1in 0.18in;
+    font-size: 8.75pt;
+  }
+
+  .ea-meta {
+    padding: 0.1in 0.18in;
+    gap: 0.12in 0.22in;
+    font-size: 9pt;
+  }
+
+  .ea-meta .ea-name {
+    font-size: 10.5pt;
+  }
+
+  .ea-class-am-pm {
+    margin-top: 0.06in;
+    font-size: 8.75pt;
+  }
+
+  .ea-section-title {
+    padding: 0.06in 0.18in;
+    font-size: 8.25pt;
+  }
+
+  .ea-rows {
+    padding: 0.03in 0.18in 0.06in;
+  }
+
+  .ea-row {
+    padding: 0.05in 0;
+    font-size: 9pt;
+    gap: 0.1in;
+  }
+
+  .ea-row .ea-label .ea-paren {
+    font-size: 8pt;
+  }
+
+  .ea-promo {
+    padding: 0.08in 0.18in;
+    font-size: 9pt;
+    gap: 0.2in;
+  }
+
+  .ea-promo-hint {
+    margin-top: 0.04in;
+    font-size: 8pt;
+  }
+
+  .ea-promo-answer {
+    font-size: 10.5pt;
+  }
+
+  .ea-box,
+  .ea-banner,
+  .ea-pill.ea-yes,
+  .ea-pill.ea-no {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+
+@page {
+  size: letter portrait;
+  margin: 0.4in;
+}
