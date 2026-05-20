@@ -62,8 +62,14 @@ export default function SettingsPage() {
     if (!currentClass) return;
     
     // Validate weights sum to 100
-    const total = weights.casasReading + weights.casasListening + weights.tests + weights.attendance;
-    if (total !== 100) {
+    const total =
+      weights.casasReading +
+      weights.casasListening +
+      weights.tests +
+      weights.attendance +
+      weights.speaking +
+      weights.writing;
+    if (total < 98 || total > 100) {
       setSaveStatus('error');
       return;
     }
@@ -143,7 +149,13 @@ export default function SettingsPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const weightsTotal = weights.casasReading + weights.casasListening + weights.tests + weights.attendance;
+  const weightsTotal =
+    weights.casasReading +
+    weights.casasListening +
+    weights.tests +
+    weights.attendance +
+    weights.speaking +
+    weights.writing;
 
   const handleTestSync = async () => {
     setSyncTestStatus('testing');
@@ -205,7 +217,7 @@ export default function SettingsPage() {
                 Adjust how much each category contributes to the overall student score. Must total 100%.
               </p>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     CASAS Reading
@@ -266,6 +278,38 @@ export default function SettingsPage() {
                       type="number"
                       value={weights.attendance}
                       onChange={e => handleWeightChange('attendance', parseInt(e.target.value) || 0)}
+                      className="input w-20 text-center"
+                      min="0"
+                      max="100"
+                    />
+                    <span className="text-gray-500">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Speaking
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={weights.speaking}
+                      onChange={e => handleWeightChange('speaking', parseInt(e.target.value) || 0)}
+                      className="input w-20 text-center"
+                      min="0"
+                      max="100"
+                    />
+                    <span className="text-gray-500">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Writing
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={weights.writing}
+                      onChange={e => handleWeightChange('writing', parseInt(e.target.value) || 0)}
                       className="input w-20 text-center"
                       min="0"
                       max="100"

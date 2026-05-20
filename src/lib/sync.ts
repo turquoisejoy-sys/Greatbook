@@ -203,7 +203,6 @@ export async function uploadReportCards(reportCards: ReportCard[]): Promise<void
   // Ensure backward compatibility with database schema
   // Don't send teacherComments as the DB column may not exist yet
   const normalizedCards = reportCards.map(r => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { teacherComments, ...rest } = r;
     return {
       ...rest,

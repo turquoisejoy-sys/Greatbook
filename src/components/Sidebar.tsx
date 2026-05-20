@@ -59,8 +59,10 @@ export default function Sidebar({
     { href: `${classBasePath}/casas-reading`, label: 'CASAS Reading', icon: AcademicCapIcon },
     { href: `${classBasePath}/casas-listening`, label: 'CASAS Listening', icon: AcademicCapIcon },
     { href: `${classBasePath}/tests`, label: 'Unit Tests', icon: ClipboardDocumentListIcon },
-    { href: `${classBasePath}/production`, label: 'Speaking & writing', icon: ChatBubbleLeftRightIcon },
+    { href: `${classBasePath}/speaking`, label: 'Speaking', icon: ChatBubbleLeftRightIcon },
+    { href: `${classBasePath}/writing`, label: 'Writing', icon: ChatBubbleLeftRightIcon },
     { href: `${classBasePath}/analysis`, label: 'Analysis', icon: ChartBarIcon },
+    { href: `${classBasePath}/exit-assessments`, label: 'Exit Assessments', icon: ClipboardDocumentListIcon },
     { href: `${classBasePath}/report-cards`, label: 'Report Cards', icon: DocumentTextIcon },
   ] : [];
 

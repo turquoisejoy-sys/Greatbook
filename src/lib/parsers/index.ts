@@ -38,3 +38,10 @@ export {
   type StudentGainsParseResult,
   type StudentGainsAggregated,
 } from './student-gains-parser';
+
+export {
+  parseFinalScoreFile,
+  parseFinalScoreFileFromInput,
+  type FinalScoreParseResult,
+  type FinalScoreImportRow,
+} from './final-score-parser';

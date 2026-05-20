@@ -45,6 +45,8 @@ export interface RankingWeights {
   casasListening: number; // default 25
   tests: number;          // default 25
   attendance: number;     // default 25
+  speaking: number;
+  writing: number;
 }
 
 export interface ColorThresholds {
@@ -95,52 +97,49 @@ export interface UnitTest {
   createdAt: string;
 }
 
-/** Speaking-only, writing-only, or legacy combined on one assignment. */
-export type ProductionModality = 'speaking' | 'writing' | 'both';
-
-/** One scored task for a class — production rubrics, 1–4 per category. */
-export interface ProductionAssignment {
+export interface SpeakingTest {
   id: string;
   classId: string;
   title: string;
+  exitAssessmentType?: 'none' | 'midterm' | 'final';
   date: string; // ISO date (YYYY-MM-DD)
-  modality: ProductionModality;
+  totalPoints: number;
+  passingScore: number;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Per-student scores for one production assignment (local-only until cloud sync is added). */
-export interface ProductionRubricScore {
+export interface SpeakingTestResult {
   id: string;
-  assignmentId: string;
+  testId: string;
   studentId: string;
-  /** Speaking rubric — 1–4 or null if not entered */
-  speakFluency: number | null;
-  speakAccuracy: number | null;
-  speakPronunciation: number | null;
-  speakCommunication: number | null;
-  /** Writing rubric — 1–4 or null */
-  writeContent: number | null;
-  writeOrganization: number | null;
-  writeAccuracy: number | null;
-  writeVocabulary: number | null;
-  writeMechanics: number | null;
+  score: number | null;
+  comment: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export type ProductionRubricField = keyof Pick<
-  ProductionRubricScore,
-  | 'speakFluency'
-  | 'speakAccuracy'
-  | 'speakPronunciation'
-  | 'speakCommunication'
-  | 'writeContent'
-  | 'writeOrganization'
-  | 'writeAccuracy'
-  | 'writeVocabulary'
-  | 'writeMechanics'
->;
+export interface WritingTest {
+  id: string;
+  classId: string;
+  title: string;
+  exitAssessmentType?: 'none' | 'midterm' | 'final';
+  date: string; // ISO date (YYYY-MM-DD)
+  totalPoints: number;
+  passingScore: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WritingTestResult {
+  id: string;
+  testId: string;
+  studentId: string;
+  score: number | null;
+  comment: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 // Monthly Attendance
 export interface Attendance {
@@ -206,6 +205,8 @@ export interface StudentWithStats extends Student {
   casasListeningProgress: number | null;
   testAverage: number | null;
   attendanceAverage: number | null;
+  speakingAverage: number | null;
+  writingAverage: number | null;
   overallScore: number | null;
   rank: number | null;
   isComplete: boolean; // Has all required data for ranking

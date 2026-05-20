@@ -3,9 +3,10 @@ import {
   Student,
   CASASTest,
   UnitTest,
-  ProductionAssignment,
-  ProductionRubricScore,
-  ProductionRubricField,
+  SpeakingTest,
+  SpeakingTestResult,
+  WritingTest,
+  WritingTestResult,
   Attendance,
   ReportCard,
   ArchivedYear,
@@ -15,7 +16,6 @@ import {
   CACE_LEVELS,
   ISSTRecord,
   StudentNote,
-  ProductionModality,
 } from '@/types';
 import { queueSync, downloadAllFromCloud, isSupabaseConfigured, deleteFromCloud } from './sync';
 
@@ -34,8 +34,10 @@ const STORAGE_KEYS = {
   currentClassId: 'gradebook_current_class_id',
   isstRecords: 'gradebook_isst_records',
   studentNotes: 'gradebook_student_notes',
-  productionAssignments: 'gradebook_production_assignments',
-  productionRubricScores: 'gradebook_production_rubric_scores',
+  speakingTests: 'gradebook_speaking_tests',
+  speakingTestResults: 'gradebook_speaking_test_results',
+  writingTests: 'gradebook_writing_tests',
+  writingTestResults: 'gradebook_writing_test_results',
   /** IDs of classes/user-deleted so cloud sync does not re-add them */
   deletedClassIds: 'gradebook_deleted_class_ids',
   deletedStudentIds: 'gradebook_deleted_student_ids',
@@ -63,6 +65,26 @@ function getFromStorage<T>(key: string, defaultValue: T): T {
 function saveToStorage<T>(key: string, data: T): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(key, JSON.stringify(data));
+}
+
+function getDeletedClassIdSet(): Set<string> {
+  return new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedClassIds, []));
+}
+
+function getDeletedStudentIdSet(): Set<string> {
+  return new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedStudentIds, []));
+}
+
+function withoutDeletedClasses<T extends { id: string }>(rows: T[]): T[] {
+  const deleted = getDeletedClassIdSet();
+  if (deleted.size === 0) return rows;
+  return rows.filter(row => !deleted.has(row.id));
+}
+
+function withoutDeletedStudents<T extends { id: string }>(rows: T[]): T[] {
+  const deleted = getDeletedStudentIdSet();
+  if (deleted.size === 0) return rows;
+  return rows.filter(row => !deleted.has(row.id));
 }
 
 // ============================================
@@ -110,8 +132,8 @@ export async function syncFromCloud(): Promise<boolean> {
     const localISSTRecords = getFromStorage<ISSTRecord[]>(STORAGE_KEYS.isstRecords, []);
 
     // Don't re-add classes/students the user deleted (cloud may still have them if delete failed)
-    const deletedClassIds = new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedClassIds, []));
-    const deletedStudentIds = new Set(getFromStorage<string[]>(STORAGE_KEYS.deletedStudentIds, []));
+    const deletedClassIds = getDeletedClassIdSet();
+    const deletedStudentIds = getDeletedStudentIdSet();
     const cloudClassesFiltered = cloudData.classes.filter(c => !deletedClassIds.has(c.id));
     const cloudStudentsFiltered = cloudData.students.filter(s => !deletedStudentIds.has(s.id));
     const cloudCasasFiltered = cloudData.casasTests.filter(t => !deletedStudentIds.has(t.studentId));
@@ -150,8 +172,8 @@ export async function syncFromCloud(): Promise<boolean> {
     }
     
     // Merge all data (use filtered cloud so deleted classes/students don't come back)
-    const mergedClasses = mergeArrays(localClasses, cloudClassesFiltered);
-    const mergedStudents = mergeArrays(localStudents, cloudStudentsFiltered);
+    const mergedClasses = withoutDeletedClasses(mergeArrays(localClasses, cloudClassesFiltered));
+    const mergedStudents = withoutDeletedStudents(mergeArrays(localStudents, cloudStudentsFiltered));
     const mergedCasasTests = mergeArrays(localCasasTests, cloudCasasFiltered);
     const mergedUnitTests = mergeArrays(localUnitTests, cloudUnitTestsFiltered);
     const mergedAttendance = mergeArrays(localAttendance, cloudAttendanceFiltered);
@@ -168,6 +190,17 @@ export async function syncFromCloud(): Promise<boolean> {
     saveToStorage(STORAGE_KEYS.reportCards, mergedReportCards);
     saveToStorage(STORAGE_KEYS.studentNotes, mergedStudentNotes);
     saveToStorage(STORAGE_KEYS.isstRecords, mergedISSTRecords);
+
+    // Retry cloud deletes for classes removed locally (e.g. prior delete failed due to RLS)
+    if (deletedClassIds.size > 0) {
+      await Promise.all(
+        Array.from(deletedClassIds).map(classId =>
+          deleteFromCloud('classes', classId).catch(err =>
+            console.error('Failed to purge deleted class from cloud:', classId, err),
+          ),
+        ),
+      );
+    }
     
     // Upload merged data back to cloud (in case local had newer items)
     triggerSync();
@@ -184,10 +217,12 @@ export async function syncFromCloud(): Promise<boolean> {
 // ============================================
 
 export const DEFAULT_RANKING_WEIGHTS: RankingWeights = {
-  casasReading: 25,
-  casasListening: 25,
-  tests: 25,
-  attendance: 25,
+  casasReading: 18,
+  casasListening: 18,
+  speaking: 18,
+  writing: 18,
+  tests: 14,
+  attendance: 14,
 };
 
 export const DEFAULT_COLOR_THRESHOLDS: ColorThresholds = {
@@ -230,7 +265,13 @@ export function getAcademicYearOptions(): string[] {
 // ============================================
 
 export function getClasses(): Class[] {
-  const classes = getFromStorage<Class[]>(STORAGE_KEYS.classes, []);
+  const deletedClassIds = getDeletedClassIdSet();
+  let classes = getFromStorage<Class[]>(STORAGE_KEYS.classes, []);
+  const hadDeletedInStorage = deletedClassIds.size > 0 && classes.some(c => deletedClassIds.has(c.id));
+  if (hadDeletedInStorage) {
+    classes = classes.filter(c => !deletedClassIds.has(c.id));
+    saveToStorage(STORAGE_KEYS.classes, classes);
+  }
   
   // Migration: assign academicYear to classes that don't have one
   let needsSave = false;
@@ -243,8 +284,32 @@ export function getClasses(): Class[] {
       cls.academicYear = getCurrentAcademicYear();
       needsSave = true;
     }
-    // Migration: update old ranking weights to new equal weights (25% each)
+    // Migration: update old legacy weights to defaults
     if (cls.rankingWeights && (cls.rankingWeights.tests === 30 || cls.rankingWeights.attendance === 20)) {
+      cls.rankingWeights = { ...DEFAULT_RANKING_WEIGHTS };
+      needsSave = true;
+    }
+    // Migration: add speaking/writing weights to existing classes
+    if (cls.rankingWeights && (cls.rankingWeights.speaking === undefined || cls.rankingWeights.writing === undefined)) {
+      cls.rankingWeights = { ...DEFAULT_RANKING_WEIGHTS };
+      needsSave = true;
+    }
+    // Migration: previous default bundles -> latest default bundle
+    if (
+      cls.rankingWeights &&
+      ((cls.rankingWeights.casasReading === 16 &&
+        cls.rankingWeights.casasListening === 16 &&
+        cls.rankingWeights.tests === 16 &&
+        cls.rankingWeights.attendance === 16 &&
+        cls.rankingWeights.speaking === 18 &&
+        cls.rankingWeights.writing === 18) ||
+        (cls.rankingWeights.casasReading === 18 &&
+          cls.rankingWeights.casasListening === 18 &&
+          cls.rankingWeights.tests === 16 &&
+          cls.rankingWeights.attendance === 14 &&
+          cls.rankingWeights.speaking === 14 &&
+          cls.rankingWeights.writing === 18))
+    ) {
       cls.rankingWeights = { ...DEFAULT_RANKING_WEIGHTS };
       needsSave = true;
     }
@@ -343,18 +408,21 @@ export function deleteClass(classId: string): void {
   const studentNotes = getStudentNotes().filter(n => !studentIdsToDelete.has(n.studentId));
   saveStudentNotes(studentNotes);
 
-  const want = normalizeProductionClassId(classId);
-  const assignmentIdsToRemove = getProductionAssignments()
-    .filter(a => normalizeProductionClassId(a.classId) === want)
-    .map(a => a.id);
-  const productionAssignments = getProductionAssignments().filter(
-    a => normalizeProductionClassId(a.classId) !== want,
+  const speakingTestIdsToRemove = getSpeakingTests()
+    .filter(t => t.classId === classId)
+    .map(t => t.id);
+  saveSpeakingTests(getSpeakingTests().filter(t => t.classId !== classId));
+  saveSpeakingTestResults(
+    getSpeakingTestResults().filter(r => !speakingTestIdsToRemove.includes(r.testId)),
   );
-  saveProductionAssignments(productionAssignments);
-  const productionRubricScores = getProductionRubricScores().filter(
-    s => !assignmentIdsToRemove.includes(s.assignmentId),
+
+  const writingTestIdsToRemove = getWritingTests()
+    .filter(t => t.classId === classId)
+    .map(t => t.id);
+  saveWritingTests(getWritingTests().filter(t => t.classId !== classId));
+  saveWritingTestResults(
+    getWritingTestResults().filter(r => !writingTestIdsToRemove.includes(r.testId)),
   );
-  saveProductionRubricScores(productionRubricScores);
 
   // Delete from cloud (async, fire and forget)
   deleteFromCloud('classes', classId).catch(err => console.error('Failed to delete class from cloud:', err));
@@ -498,20 +566,6 @@ export function transferStudent(studentId: string, newClassId: string): void {
     isPromoted: false,
     promotedDate: null,
   });
-  if (oldClassId && oldClassId !== newClassId) {
-    const oldWant = normalizeProductionClassId(oldClassId);
-    const oldAssignmentIds = new Set(
-      getProductionAssignments()
-        .filter(a => normalizeProductionClassId(a.classId) === oldWant)
-        .map(a => a.id),
-    );
-    if (oldAssignmentIds.size > 0) {
-      const scores = getProductionRubricScores().filter(
-        s => !(s.studentId === studentId && oldAssignmentIds.has(s.assignmentId)),
-      );
-      saveProductionRubricScores(scores);
-    }
-  }
 }
 
 /** @deprecated Prefer transferStudent (same behavior). */
@@ -648,189 +702,272 @@ export function deleteUnitTest(testId: string): void {
 }
 
 // ============================================
-// Production skills (speaking / writing rubrics) — local only (no cloud sync yet)
+// Speaking tests (local only)
 // ============================================
 
-/** Normalize for matching URL class id to stored assignment.classId (trim, string). */
-function normalizeProductionClassId(id: unknown): string {
-  if (id == null) return '';
-  return String(id).trim();
-}
-
-export function getProductionAssignments(): ProductionAssignment[] {
-  const raw = getFromStorage<unknown>(STORAGE_KEYS.productionAssignments, []);
-  let rows: unknown[] = [];
-  let needsStructuralFix = false;
-
-  if (Array.isArray(raw)) {
-    rows = raw;
-  } else if (raw && typeof raw === 'object' && (raw as { id?: unknown }).id != null) {
-    // Corrupt save: one assignment stored as an object instead of an array — recover it
-    rows = [raw];
-    needsStructuralFix = true;
-  }
-
-  const objectRows = rows.filter(
-    (x): x is Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x),
-  );
-
-  let needsSave = needsStructuralFix;
-  const normalized: ProductionAssignment[] = [];
-  for (const a of objectRows) {
-    const r = a as unknown as ProductionAssignment & { modality?: ProductionModality | null };
-    const modality = r.modality;
-    if (modality == null) {
+export function getSpeakingTests(): SpeakingTest[] {
+  const tests = getFromStorage<SpeakingTest[]>(STORAGE_KEYS.speakingTests, []);
+  let needsSave = false;
+  for (const test of tests) {
+    if (test.exitAssessmentType === undefined) {
+      test.exitAssessmentType = 'none';
       needsSave = true;
-      normalized.push({ ...r, modality: 'both' });
-    } else {
-      normalized.push(r);
     }
   }
-  if (needsSave) saveToStorage(STORAGE_KEYS.productionAssignments, normalized);
-  return normalized;
+  if (needsSave) {
+    saveSpeakingTests(tests);
+  }
+  return tests;
 }
 
-export function saveProductionAssignments(rows: ProductionAssignment[]): void {
-  saveToStorage(STORAGE_KEYS.productionAssignments, rows);
+export function saveSpeakingTests(rows: SpeakingTest[]): void {
+  saveToStorage(STORAGE_KEYS.speakingTests, rows);
 }
 
-export function getProductionAssignmentsByClass(classId: string): ProductionAssignment[] {
-  const want = normalizeProductionClassId(classId);
-  if (!want) return [];
-  return getProductionAssignments()
-    .filter(a => normalizeProductionClassId(a.classId) === want)
+export function getSpeakingTestsByClass(classId: string): SpeakingTest[] {
+  return getSpeakingTests()
+    .filter(t => t.classId === classId)
     .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title));
 }
 
-/** Assignments with missing/blank classId (recoverable from older saves). */
-export function getProductionAssignmentsWithoutClass(): ProductionAssignment[] {
-  return getProductionAssignments().filter(a => normalizeProductionClassId(a.classId) === '');
-}
-
-/** Set classId for assignments that have none (returns how many were fixed). */
-export function repairProductionAssignmentsMissingClassIds(classId: string): number {
-  const want = normalizeProductionClassId(classId);
-  if (!want) return 0;
-  const all = getProductionAssignments();
-  let n = 0;
-  const next = all.map(a => {
-    if (normalizeProductionClassId(a.classId) === '') {
-      n++;
-      return { ...a, classId: want, updatedAt: new Date().toISOString() };
-    }
-    return a;
-  });
-  if (n > 0) saveProductionAssignments(next);
-  return n;
-}
-
-export function moveProductionAssignmentToClass(assignmentId: string, newClassId: string): void {
-  const want = normalizeProductionClassId(newClassId);
-  if (!want) return;
-  const all = getProductionAssignments();
-  const i = all.findIndex(a => a.id === assignmentId);
-  if (i === -1) return;
-  const updated = [...all.slice(0, i), { ...all[i], classId: want, updatedAt: new Date().toISOString() }, ...all.slice(i + 1)];
-  saveProductionAssignments(updated);
-}
-
-export function addProductionAssignment(
+export function addSpeakingTest(
   classId: string,
   title: string,
   date: string,
-  modality: Exclude<ProductionModality, 'both'>,
-): ProductionAssignment {
+  totalPoints: number,
+  passingScore: number,
+  exitAssessmentType: 'none' | 'midterm' | 'final' = 'none',
+): SpeakingTest {
   const now = new Date().toISOString();
-  const row: ProductionAssignment = {
+  const row: SpeakingTest = {
     id: generateId(),
     classId,
     title: title.trim() || 'Untitled',
+    exitAssessmentType,
     date,
-    modality,
+    totalPoints,
+    passingScore,
     createdAt: now,
     updatedAt: now,
   };
-  const existing = getProductionAssignments();
-  saveProductionAssignments([...existing, row]);
+  const all = getSpeakingTests();
+  saveSpeakingTests([...all, row]);
   return row;
 }
 
-export function updateProductionAssignment(
-  assignmentId: string,
-  updates: Partial<Pick<ProductionAssignment, 'title' | 'date'>>,
-): ProductionAssignment | null {
-  const all = getProductionAssignments();
-  const i = all.findIndex(a => a.id === assignmentId);
-  if (i === -1) return null;
-  const next = { ...all[i], ...updates, updatedAt: new Date().toISOString() };
-  if (typeof next.title === 'string') next.title = next.title.trim() || 'Untitled';
-  const updated = [...all.slice(0, i), next, ...all.slice(i + 1)];
-  saveProductionAssignments(updated);
+export function updateSpeakingTest(
+  testId: string,
+  updates: Partial<Pick<SpeakingTest, 'title' | 'date' | 'totalPoints' | 'passingScore' | 'exitAssessmentType'>>,
+): SpeakingTest | null {
+  const all = getSpeakingTests();
+  const index = all.findIndex(t => t.id === testId);
+  if (index === -1) return null;
+  const next = {
+    ...all[index],
+    ...updates,
+    title: typeof updates.title === 'string' ? updates.title.trim() || 'Untitled' : all[index].title,
+    updatedAt: new Date().toISOString(),
+  };
+  const updated = [...all.slice(0, index), next, ...all.slice(index + 1)];
+  saveSpeakingTests(updated);
   return next;
 }
 
-export function deleteProductionAssignment(assignmentId: string): void {
-  const assignments = getProductionAssignments().filter(a => a.id !== assignmentId);
-  saveProductionAssignments(assignments);
-  const scores = getProductionRubricScores().filter(s => s.assignmentId !== assignmentId);
-  saveProductionRubricScores(scores);
+export function deleteSpeakingTest(testId: string): void {
+  saveSpeakingTests(getSpeakingTests().filter(t => t.id !== testId));
+  saveSpeakingTestResults(getSpeakingTestResults().filter(r => r.testId !== testId));
 }
 
-export function getProductionRubricScores(): ProductionRubricScore[] {
-  const raw = getFromStorage<unknown>(STORAGE_KEYS.productionRubricScores, []);
-  return Array.isArray(raw) ? (raw as ProductionRubricScore[]) : [];
+export function getSpeakingTestResults(): SpeakingTestResult[] {
+  return getFromStorage<SpeakingTestResult[]>(STORAGE_KEYS.speakingTestResults, []);
 }
 
-export function saveProductionRubricScores(rows: ProductionRubricScore[]): void {
-  saveToStorage(STORAGE_KEYS.productionRubricScores, rows);
+export function saveSpeakingTestResults(rows: SpeakingTestResult[]): void {
+  saveToStorage(STORAGE_KEYS.speakingTestResults, rows);
 }
 
-export function getProductionScoresByAssignment(assignmentId: string): ProductionRubricScore[] {
-  return getProductionRubricScores().filter(s => s.assignmentId === assignmentId);
+export function getSpeakingResultsByTest(testId: string): SpeakingTestResult[] {
+  return getSpeakingTestResults().filter(r => r.testId === testId);
 }
 
-function newEmptyProductionScore(assignmentId: string, studentId: string): ProductionRubricScore {
+export function upsertSpeakingResultScore(testId: string, studentId: string, score: number | null): SpeakingTestResult {
+  const all = getSpeakingTestResults();
+  const index = all.findIndex(r => r.testId === testId && r.studentId === studentId);
   const now = new Date().toISOString();
-  return {
+  if (index === -1) {
+    const row: SpeakingTestResult = {
+      id: generateId(),
+      testId,
+      studentId,
+      score,
+      comment: '',
+      createdAt: now,
+      updatedAt: now,
+    };
+    all.push(row);
+    saveSpeakingTestResults(all);
+    return row;
+  }
+  all[index] = { ...all[index], score, updatedAt: now };
+  saveSpeakingTestResults(all);
+  return all[index];
+}
+
+export function upsertSpeakingResultComment(testId: string, studentId: string, comment: string): SpeakingTestResult {
+  const all = getSpeakingTestResults();
+  const index = all.findIndex(r => r.testId === testId && r.studentId === studentId);
+  const now = new Date().toISOString();
+  if (index === -1) {
+    const row: SpeakingTestResult = {
+      id: generateId(),
+      testId,
+      studentId,
+      score: null,
+      comment,
+      createdAt: now,
+      updatedAt: now,
+    };
+    all.push(row);
+    saveSpeakingTestResults(all);
+    return row;
+  }
+  all[index] = { ...all[index], comment, updatedAt: now };
+  saveSpeakingTestResults(all);
+  return all[index];
+}
+
+// ============================================
+// Writing tests (local only)
+// ============================================
+
+export function getWritingTests(): WritingTest[] {
+  const tests = getFromStorage<WritingTest[]>(STORAGE_KEYS.writingTests, []);
+  let needsSave = false;
+  for (const test of tests) {
+    if (test.exitAssessmentType === undefined) {
+      test.exitAssessmentType = 'none';
+      needsSave = true;
+    }
+  }
+  if (needsSave) {
+    saveWritingTests(tests);
+  }
+  return tests;
+}
+
+export function saveWritingTests(rows: WritingTest[]): void {
+  saveToStorage(STORAGE_KEYS.writingTests, rows);
+}
+
+export function getWritingTestsByClass(classId: string): WritingTest[] {
+  return getWritingTests()
+    .filter(t => t.classId === classId)
+    .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title));
+}
+
+export function addWritingTest(
+  classId: string,
+  title: string,
+  date: string,
+  totalPoints: number,
+  passingScore: number,
+  exitAssessmentType: 'none' | 'midterm' | 'final' = 'none',
+): WritingTest {
+  const now = new Date().toISOString();
+  const row: WritingTest = {
     id: generateId(),
-    assignmentId,
-    studentId,
-    speakFluency: null,
-    speakAccuracy: null,
-    speakPronunciation: null,
-    speakCommunication: null,
-    writeContent: null,
-    writeOrganization: null,
-    writeAccuracy: null,
-    writeVocabulary: null,
-    writeMechanics: null,
+    classId,
+    title: title.trim() || 'Untitled',
+    exitAssessmentType,
+    date,
+    totalPoints,
+    passingScore,
     createdAt: now,
     updatedAt: now,
   };
+  const all = getWritingTests();
+  saveWritingTests([...all, row]);
+  return row;
 }
 
-export function upsertProductionRubricField(
-  assignmentId: string,
-  studentId: string,
-  field: ProductionRubricField,
-  value: number | null,
-): ProductionRubricScore {
-  const all = getProductionRubricScores();
-  const index = all.findIndex(s => s.assignmentId === assignmentId && s.studentId === studentId);
-  if (index === -1) {
-    const row = newEmptyProductionScore(assignmentId, studentId);
-    (row as ProductionRubricScore)[field] = value;
-    row.updatedAt = new Date().toISOString();
-    all.push(row);
-    saveProductionRubricScores(all);
-    return row;
-  }
-  all[index] = {
+export function updateWritingTest(
+  testId: string,
+  updates: Partial<Pick<WritingTest, 'title' | 'date' | 'totalPoints' | 'passingScore' | 'exitAssessmentType'>>,
+): WritingTest | null {
+  const all = getWritingTests();
+  const index = all.findIndex(t => t.id === testId);
+  if (index === -1) return null;
+  const next = {
     ...all[index],
-    [field]: value,
+    ...updates,
+    title: typeof updates.title === 'string' ? updates.title.trim() || 'Untitled' : all[index].title,
     updatedAt: new Date().toISOString(),
   };
-  saveProductionRubricScores(all);
+  const updated = [...all.slice(0, index), next, ...all.slice(index + 1)];
+  saveWritingTests(updated);
+  return next;
+}
+
+export function deleteWritingTest(testId: string): void {
+  saveWritingTests(getWritingTests().filter(t => t.id !== testId));
+  saveWritingTestResults(getWritingTestResults().filter(r => r.testId !== testId));
+}
+
+export function getWritingTestResults(): WritingTestResult[] {
+  return getFromStorage<WritingTestResult[]>(STORAGE_KEYS.writingTestResults, []);
+}
+
+export function saveWritingTestResults(rows: WritingTestResult[]): void {
+  saveToStorage(STORAGE_KEYS.writingTestResults, rows);
+}
+
+export function getWritingResultsByTest(testId: string): WritingTestResult[] {
+  return getWritingTestResults().filter(r => r.testId === testId);
+}
+
+export function upsertWritingResultScore(testId: string, studentId: string, score: number | null): WritingTestResult {
+  const all = getWritingTestResults();
+  const index = all.findIndex(r => r.testId === testId && r.studentId === studentId);
+  const now = new Date().toISOString();
+  if (index === -1) {
+    const row: WritingTestResult = {
+      id: generateId(),
+      testId,
+      studentId,
+      score,
+      comment: '',
+      createdAt: now,
+      updatedAt: now,
+    };
+    all.push(row);
+    saveWritingTestResults(all);
+    return row;
+  }
+  all[index] = { ...all[index], score, updatedAt: now };
+  saveWritingTestResults(all);
+  return all[index];
+}
+
+export function upsertWritingResultComment(testId: string, studentId: string, comment: string): WritingTestResult {
+  const all = getWritingTestResults();
+  const index = all.findIndex(r => r.testId === testId && r.studentId === studentId);
+  const now = new Date().toISOString();
+  if (index === -1) {
+    const row: WritingTestResult = {
+      id: generateId(),
+      testId,
+      studentId,
+      score: null,
+      comment,
+      createdAt: now,
+      updatedAt: now,
+    };
+    all.push(row);
+    saveWritingTestResults(all);
+    return row;
+  }
+  all[index] = { ...all[index], comment, updatedAt: now };
+  saveWritingTestResults(all);
   return all[index];
 }
 

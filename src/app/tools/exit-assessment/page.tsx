@@ -91,7 +91,6 @@ function ExitAssessmentToolContent() {
   }, [mounted]);
 
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect -- sync roster from local storage when class changes */
     if (!mounted || !effectiveClassId) {
       setStudents([]);
       setScores({});
@@ -106,7 +105,6 @@ function ExitAssessmentToolContent() {
       }
       return next;
     });
-    /* eslint-enable react-hooks/set-state-in-effect */
   }, [mounted, effectiveClassId]);
 
   const selectedClass = classes.find(c => c.id === effectiveClassId) ?? null;

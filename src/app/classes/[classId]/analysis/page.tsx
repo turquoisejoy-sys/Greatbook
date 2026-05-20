@@ -13,7 +13,7 @@ import {
 import Link from 'next/link';
 import StudentQuickNotes from '@/components/StudentQuickNotes';
 
-type SortField = 'rank' | 'name' | 'casasReading' | 'casasListening' | 'tests' | 'attendance' | 'overall';
+type SortField = 'rank' | 'name' | 'casasReading' | 'casasListening' | 'tests' | 'speaking' | 'writing' | 'attendance' | 'overall';
 type SortDir = 'asc' | 'desc';
 type FilterMode = 'all' | 'top10' | 'bottom10' | 'incomplete';
 
@@ -100,6 +100,14 @@ export default function AnalysisPage() {
         case 'attendance':
           aVal = a.attendanceAverage ?? -1;
           bVal = b.attendanceAverage ?? -1;
+          break;
+        case 'speaking':
+          aVal = a.speakingAverage ?? -1;
+          bVal = b.speakingAverage ?? -1;
+          break;
+        case 'writing':
+          aVal = a.writingAverage ?? -1;
+          bVal = b.writingAverage ?? -1;
           break;
         case 'overall':
           aVal = a.overallScore ?? -1;
@@ -261,6 +269,18 @@ export default function AnalysisPage() {
                 </th>
                 <th 
                   className="cursor-pointer hover:bg-gray-200 select-none text-center"
+                  onClick={() => handleSort('speaking')}
+                >
+                  Speaking {sortField === 'speaking' && (sortDir === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
+                  onClick={() => handleSort('writing')}
+                >
+                  Writing {sortField === 'writing' && (sortDir === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
                   onClick={() => handleSort('overall')}
                 >
                   Overall {sortField === 'overall' && (sortDir === 'asc' ? '↑' : '↓')}
@@ -337,6 +357,24 @@ export default function AnalysisPage() {
                         <span className="text-gray-400">—</span>
                       )}
                     </td>
+                    <td className="text-center">
+                      {student.speakingAverage !== null ? (
+                        <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.speakingAverage)}`}>
+                          {student.speakingAverage.toFixed(0)}%
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="text-center">
+                      {student.writingAverage !== null ? (
+                        <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.writingAverage)}`}>
+                          {student.writingAverage.toFixed(0)}%
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="text-center font-medium">
                       {student.overallScore !== null ? (
                         <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.overallScore)}`}>
@@ -391,6 +429,8 @@ export default function AnalysisPage() {
             <p>CASAS Listening: {currentClass.rankingWeights.casasListening}%</p>
             <p>Unit Tests: {currentClass.rankingWeights.tests}%</p>
             <p>Attendance: {currentClass.rankingWeights.attendance}%</p>
+            <p>Speaking: {currentClass.rankingWeights.speaking}%</p>
+            <p>Writing: {currentClass.rankingWeights.writing}%</p>
           </div>
         </div>
       </div>

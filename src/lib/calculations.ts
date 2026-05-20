@@ -17,6 +17,10 @@ import {
   getStudentsByClass,
   getAttendance,
   getClasses,
+  getSpeakingTestsByClass,
+  getSpeakingTestResults,
+  getWritingTestsByClass,
+  getWritingTestResults,
 } from './storage';
 
 // ============================================
@@ -93,6 +97,26 @@ export function calculateAttendanceAverage(attendance: Attendance[]): number | n
   return nonVacation.reduce((sum, a) => sum + a.percentage, 0) / nonVacation.length;
 }
 
+function calculateAssessmentAveragePercentByStudent(
+  studentId: string,
+  tests: { id: string; totalPoints: number }[],
+  results: { testId: string; studentId: string; score: number | null }[],
+): number | null {
+  if (tests.length === 0) return null;
+  const byTestId = new Map(tests.map(t => [t.id, t]));
+  const percents: number[] = [];
+  for (const result of results) {
+    if (result.studentId !== studentId) continue;
+    if (result.score === null) continue;
+    const test = byTestId.get(result.testId);
+    if (!test || test.totalPoints <= 0) continue;
+    const pct = (result.score / test.totalPoints) * 100;
+    percents.push(Math.max(0, Math.min(100, pct)));
+  }
+  if (percents.length === 0) return null;
+  return percents.reduce((sum, n) => sum + n, 0) / percents.length;
+}
+
 // ============================================
 // Student Stats
 // ============================================
@@ -101,17 +125,8 @@ export function calculateAttendanceAverage(attendance: Attendance[]): number | n
  * Check if student has all required data for ranking.
  * Enrollment date is not used; any test/attendance data counts.
  */
-export function hasCompleteData(
-  readingTests: CASASTest[],
-  listeningTests: CASASTest[],
-  unitTests: UnitTest[],
-  attendance: Attendance[]
-): boolean {
-  const hasReading = readingTests.some(t => t.score !== null);
-  const hasListening = listeningTests.some(t => t.score !== null);
-  const hasTests = unitTests.length > 0;
-  const hasAttendance = attendance.some(a => !a.isVacation);
-  return hasReading && hasListening && hasTests && hasAttendance;
+export function hasCompleteData(metrics: Array<number | null>): boolean {
+  return metrics.some(metric => metric !== null);
 }
 
 /**
@@ -122,29 +137,35 @@ export function calculateOverallScore(
   listeningProgress: number | null,
   testAverage: number | null,
   attendanceAverage: number | null,
+  speakingAverage: number | null,
+  writingAverage: number | null,
   weights: RankingWeights
 ): number | null {
-  // All must be present for a valid score
-  if (
-    readingProgress === null ||
-    listeningProgress === null ||
-    testAverage === null ||
-    attendanceAverage === null
-  ) {
-    return null;
+  const weightedParts: Array<{ value: number; weight: number }> = [];
+
+  if (readingProgress !== null) {
+    weightedParts.push({ value: Math.min(readingProgress, 100), weight: weights.casasReading });
+  }
+  if (listeningProgress !== null) {
+    weightedParts.push({ value: Math.min(listeningProgress, 100), weight: weights.casasListening });
+  }
+  if (testAverage !== null) {
+    weightedParts.push({ value: testAverage, weight: weights.tests });
+  }
+  if (attendanceAverage !== null) {
+    weightedParts.push({ value: attendanceAverage, weight: weights.attendance });
+  }
+  if (speakingAverage !== null) {
+    weightedParts.push({ value: speakingAverage, weight: weights.speaking });
+  }
+  if (writingAverage !== null) {
+    weightedParts.push({ value: writingAverage, weight: weights.writing });
   }
 
-  // Cap CASAS progress at 100% for ranking purposes
-  const cappedReading = Math.min(readingProgress, 100);
-  const cappedListening = Math.min(listeningProgress, 100);
-
-  const score =
-    (cappedReading * weights.casasReading / 100) +
-    (cappedListening * weights.casasListening / 100) +
-    (testAverage * weights.tests / 100) +
-    (attendanceAverage * weights.attendance / 100);
-
-  return score;
+  const totalWeight = weightedParts.reduce((sum, part) => sum + part.weight, 0);
+  if (totalWeight <= 0 || weightedParts.length === 0) return null;
+  const weightedSum = weightedParts.reduce((sum, part) => sum + part.value * part.weight, 0);
+  return weightedSum / totalWeight;
 }
 
 /**
@@ -158,6 +179,10 @@ export function getStudentStats(
   const listeningTests = getCASASTestsByStudent(student.id, 'listening');
   const unitTests = getUnitTestsByStudent(student.id);
   const attendance = getAttendanceByStudent(student.id);
+  const speakingTests = getSpeakingTestsByClass(student.classId);
+  const speakingResults = getSpeakingTestResults();
+  const writingTests = getWritingTestsByClass(student.classId);
+  const writingResults = getWritingTestResults();
 
   // Use all data for analysis/report cards; enrollment date is not a filter
   const casasReadingAvg = calculateCASASAverage(readingTests);
@@ -168,6 +193,16 @@ export function getStudentStats(
   const casasListeningHighest = getHighestCASASScore(listeningTests);
   const testAverage = calculateTestAverage(unitTests);
   const attendanceAverage = calculateAttendanceAverage(attendance);
+  const speakingAverage = calculateAssessmentAveragePercentByStudent(
+    student.id,
+    speakingTests,
+    speakingResults,
+  );
+  const writingAverage = calculateAssessmentAveragePercentByStudent(
+    student.id,
+    writingTests,
+    writingResults,
+  );
 
   // Use HIGHEST score for progress calculation (determines level readiness)
   const casasReadingProgress = calculateCASASProgress(
@@ -181,22 +216,24 @@ export function getStudentStats(
     classData.casasListeningTarget
   );
 
-  const isComplete = hasCompleteData(
-    readingTests,
-    listeningTests,
-    unitTests,
-    attendance
-  );
+  const isComplete = hasCompleteData([
+    casasReadingProgress,
+    casasListeningProgress,
+    testAverage,
+    attendanceAverage,
+    speakingAverage,
+    writingAverage,
+  ]);
 
-  const overallScore = isComplete
-    ? calculateOverallScore(
-        casasReadingProgress,
-        casasListeningProgress,
-        testAverage,
-        attendanceAverage,
-        classData.rankingWeights
-      )
-    : null;
+  const overallScore = calculateOverallScore(
+    casasReadingProgress,
+    casasListeningProgress,
+    testAverage,
+    attendanceAverage,
+    speakingAverage,
+    writingAverage,
+    classData.rankingWeights,
+  );
 
   return {
     ...student,
@@ -210,6 +247,8 @@ export function getStudentStats(
     casasListeningProgress,
     testAverage,
     attendanceAverage,
+    speakingAverage,
+    writingAverage,
     overallScore,
     rank: null, // Will be set by rankStudents
     isComplete,
