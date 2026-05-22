@@ -10,7 +10,7 @@ import {
   addCASASTest,
   updateCASASTest,
   deleteCASASTest,
-  findOrCreateStudent,
+  findStudentByName,
   updateClass,
   updateStudent,
 } from '@/lib/storage';
@@ -44,9 +44,11 @@ export default function CASASListeningPage() {
   const [showImportResult, setShowImportResult] = useState<{
     added: number;
     skipped: number;
+    unmatched: string[];
     errors: string[];
     warnings: string[];
   } | null>(null);
+  const [lastImportTestIds, setLastImportTestIds] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [isGainsImporting, setIsGainsImporting] = useState(false);
   const [showGainsImportResult, setShowGainsImportResult] = useState<{
@@ -138,20 +140,62 @@ export default function CASASListeningPage() {
     setIsImporting(true);
     const result = await parseCASASFileFromInput(file);
     
-    let added = 0;
-    let skipped = 0;
+    const unmatched: string[] = [];
+    const matchedRows: Array<{ studentId: string; row: (typeof result.listening)[number] }> = [];
 
     for (const row of result.listening) {
-      const student = findOrCreateStudent(row.studentName, classId);
-      const test = addCASASTest(student.id, 'listening', row.date, row.formNumber, row.score);
-      if (test) added++;
-      else skipped++;
+      const student = findStudentByName(row.studentName, classId, true);
+      if (!student) {
+        unmatched.push(row.studentName);
+        continue;
+      }
+      matchedRows.push({ studentId: student.id, row });
     }
 
-    setShowImportResult({ added, skipped, errors: result.errors, warnings: result.warnings });
+    const proceed = window.confirm(
+      [
+        `Import ${result.listening.length} listening rows from "${file.name}"?`,
+        `${matchedRows.length} row(s) match this class roster.`,
+        `${unmatched.length} row(s) have no name match and will be skipped.`,
+      ].join('\n')
+    );
+
+    if (!proceed) {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    let added = 0;
+    let skipped = 0;
+    const addedIds: string[] = [];
+
+    for (const { studentId, row } of matchedRows) {
+      const test = addCASASTest(studentId, 'listening', row.date, row.formNumber, row.score);
+      if (test) {
+        added++;
+        addedIds.push(test.id);
+      } else {
+        skipped++;
+      }
+    }
+
+    setLastImportTestIds(addedIds);
+    setShowImportResult({ added, skipped, unmatched, errors: result.errors, warnings: result.warnings });
     refreshData(currentClass);
     setIsImporting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleUndoLastImport = () => {
+    if (lastImportTestIds.length === 0 || !currentClass) return;
+    const confirmUndo = window.confirm(`Undo last import and remove ${lastImportTestIds.length} listening score(s)?`);
+    if (!confirmUndo) return;
+    for (const testId of lastImportTestIds) {
+      deleteCASASTest(testId);
+    }
+    setLastImportTestIds([]);
+    refreshData(currentClass);
   };
 
   const handleStudentGainsImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -303,6 +347,14 @@ export default function CASASListeningPage() {
             <ArrowUpTrayIcon className="w-5 h-5" />
             {isImporting ? 'Importing...' : 'Import File'}
           </button>
+          <button
+            onClick={handleUndoLastImport}
+            disabled={lastImportTestIds.length === 0}
+            className="btn btn-secondary"
+            title="Remove scores added by the most recent import on this page"
+          >
+            Undo Last Import
+          </button>
         </div>
       </div>
 
@@ -363,6 +415,13 @@ export default function CASASListeningPage() {
                 Added {showImportResult.added} listening scores
                 {showImportResult.skipped > 0 && `, skipped ${showImportResult.skipped} duplicates`}
               </p>
+              {showImportResult.unmatched.length > 0 && (
+                <p className="text-amber-800 mt-1 text-sm">
+                  Skipped {showImportResult.unmatched.length} unmatched name(s):{' '}
+                  {showImportResult.unmatched.slice(0, 6).join(', ')}
+                  {showImportResult.unmatched.length > 6 ? '…' : ''}
+                </p>
+              )}
               {showImportResult.errors.length > 0 && (
                 <ul className="mt-2 text-red-700 text-sm list-disc list-inside">
                   {showImportResult.errors.map((err, i) => <li key={i}>{err}</li>)}
