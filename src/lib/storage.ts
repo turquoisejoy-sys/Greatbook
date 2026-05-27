@@ -18,7 +18,14 @@ import {
   StudentNote,
 } from '@/types';
 import { getTeacherName, setTeacherName } from './teacher-settings';
-import { queueSync, downloadAllFromCloud, isSupabaseConfigured, deleteFromCloud } from './sync';
+import {
+  queueSync,
+  downloadAllFromCloud,
+  isSupabaseConfigured,
+  deleteFromCloud,
+  forceSyncNow,
+  type CloudSyncPayload,
+} from './sync';
 
 // ============================================
 // Local Storage Keys
@@ -92,13 +99,9 @@ function withoutDeletedStudents<T extends { id: string }>(rows: T[]): T[] {
 // Cloud Sync
 // ============================================
 
-/**
- * Trigger a sync to Supabase (debounced)
- */
-function triggerSync(): void {
-  if (typeof window === 'undefined') return;
-  
-  queueSync({
+/** Snapshot of all gradebook data for cloud upload (same shape as automatic sync). */
+export function getCloudSyncPayload(): CloudSyncPayload {
+  return {
     classes: getFromStorage<Class[]>(STORAGE_KEYS.classes, []),
     students: getFromStorage<Student[]>(STORAGE_KEYS.students, []),
     casasTests: getFromStorage<CASASTest[]>(STORAGE_KEYS.casasTests, []),
@@ -111,7 +114,20 @@ function triggerSync(): void {
     speakingTestResults: getFromStorage<SpeakingTestResult[]>(STORAGE_KEYS.speakingTestResults, []),
     writingTests: getFromStorage<WritingTest[]>(STORAGE_KEYS.writingTests, []),
     writingTestResults: getFromStorage<WritingTestResult[]>(STORAGE_KEYS.writingTestResults, []),
-  });
+  };
+}
+
+/** Push everything in this browser to Supabase immediately (use after bulk entry or on another device). */
+export async function pushLocalDataToCloud(): Promise<void> {
+  await forceSyncNow(getCloudSyncPayload());
+}
+
+/**
+ * Trigger a sync to Supabase (debounced)
+ */
+function triggerSync(): void {
+  if (typeof window === 'undefined') return;
+  queueSync(getCloudSyncPayload());
 }
 
 /**

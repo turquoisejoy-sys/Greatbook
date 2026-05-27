@@ -288,14 +288,10 @@ export async function uploadSpeakingTests(tests: SpeakingTest[]): Promise<void> 
   if (!isSupabaseConfigured()) return;
   if (tests.length === 0) return;
 
-  try {
-    const data = tests.map(t => normalizeSpeakingTestForCloud(t));
-    const { error } = await supabase.from('speaking_tests').upsert(data, { onConflict: 'id' });
-    if (error) {
-      console.log('speaking_tests sync skipped (table may not exist):', getSyncErrorMessage(error));
-    }
-  } catch {
-    console.log('speaking_tests sync skipped');
+  const data = tests.map(t => normalizeSpeakingTestForCloud(t));
+  const { error } = await supabase.from('speaking_tests').upsert(data, { onConflict: 'id' });
+  if (error) {
+    throwSyncError('Speaking tests upload error', error);
   }
 }
 
@@ -303,14 +299,10 @@ export async function uploadSpeakingTestResults(results: SpeakingTestResult[]): 
   if (!isSupabaseConfigured()) return;
   if (results.length === 0) return;
 
-  try {
-    const data = results.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
-    const { error } = await supabase.from('speaking_test_results').upsert(data, { onConflict: 'id' });
-    if (error) {
-      console.log('speaking_test_results sync skipped (table may not exist):', getSyncErrorMessage(error));
-    }
-  } catch {
-    console.log('speaking_test_results sync skipped');
+  const data = results.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
+  const { error } = await supabase.from('speaking_test_results').upsert(data, { onConflict: 'id' });
+  if (error) {
+    throwSyncError('Speaking test results upload error', error);
   }
 }
 
@@ -318,14 +310,10 @@ export async function uploadWritingTests(tests: WritingTest[]): Promise<void> {
   if (!isSupabaseConfigured()) return;
   if (tests.length === 0) return;
 
-  try {
-    const data = tests.map(t => normalizeWritingTestForCloud(t));
-    const { error } = await supabase.from('writing_tests').upsert(data, { onConflict: 'id' });
-    if (error) {
-      console.log('writing_tests sync skipped (table may not exist):', getSyncErrorMessage(error));
-    }
-  } catch {
-    console.log('writing_tests sync skipped');
+  const data = tests.map(t => normalizeWritingTestForCloud(t));
+  const { error } = await supabase.from('writing_tests').upsert(data, { onConflict: 'id' });
+  if (error) {
+    throwSyncError('Writing tests upload error', error);
   }
 }
 
@@ -333,14 +321,10 @@ export async function uploadWritingTestResults(results: WritingTestResult[]): Pr
   if (!isSupabaseConfigured()) return;
   if (results.length === 0) return;
 
-  try {
-    const data = results.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
-    const { error } = await supabase.from('writing_test_results').upsert(data, { onConflict: 'id' });
-    if (error) {
-      console.log('writing_test_results sync skipped (table may not exist):', getSyncErrorMessage(error));
-    }
-  } catch {
-    console.log('writing_test_results sync skipped');
+  const data = results.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
+  const { error } = await supabase.from('writing_test_results').upsert(data, { onConflict: 'id' });
+  if (error) {
+    throwSyncError('Writing test results upload error', error);
   }
 }
 
@@ -752,9 +736,20 @@ export async function forceSyncNow(data: Parameters<typeof uploadAllToCloud>[0])
 // Sync Test Function
 // ============================================
 
+export type CloudSyncPayload = Parameters<typeof uploadAllToCloud>[0];
+
+export interface SyncLocalCounts {
+  speakingTests: number;
+  speakingTestResults: number;
+  writingTests: number;
+  writingTestResults: number;
+}
+
 export interface SyncTestResult {
   configured: boolean;
   connected: boolean;
+  uploadError?: string;
+  localCounts?: SyncLocalCounts;
   tables: {
     name: string;
     exists: boolean;

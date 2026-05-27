@@ -360,12 +360,21 @@ export function getColorClass(level: ColorLevel | null): string {
 // Name Sorting
 // ============================================
 
+/** Remove parenthetical nicknames, e.g. "(Alice)" in "Xinhong (Alice) Ma". */
+function stripParentheticalNicknames(fullName: string): string {
+  return fullName
+    .replace(/\s*\([^)]*\)/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 function nameParts(fullName: string): string[] {
-  return fullName.trim().split(/\s+/).filter(Boolean);
+  return stripParentheticalNicknames(fullName).split(/\s+/).filter(Boolean);
 }
 
 /**
  * Primary surname used for alphabetization.
+ * Parenthetical nicknames are ignored, e.g. Ma in "Xinhong (Alice) Ma".
  * - One word: that word
  * - Two words: second word (single surname)
  * - Three or more: first surname (word before the final surname), e.g. Martinez in "Maria Martinez Aguilar"
@@ -428,7 +437,7 @@ export function sortStudentsByLastName<T extends { name: string }>(students: T[]
  * Normalize a name for fuzzy matching (lowercase, trim, remove extra spaces)
  */
 export function normalizeNameForMatching(name: string): string {
-  return name.toLowerCase().trim().replace(/\s+/g, ' ');
+  return stripParentheticalNicknames(name).toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
 // ============================================

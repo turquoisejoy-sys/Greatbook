@@ -2,11 +2,16 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '@/components/AppShell';
-import { 
-  getClasses, 
-  updateClass, 
-  exportAllData, 
+import {
+  getClasses,
+  updateClass,
+  exportAllData,
   importAllData,
+  pushLocalDataToCloud,
+  getSpeakingTests,
+  getSpeakingTestResults,
+  getWritingTests,
+  getWritingTestResults,
   DEFAULT_RANKING_WEIGHTS,
   DEFAULT_COLOR_THRESHOLDS,
 } from '@/lib/storage';
@@ -21,6 +26,18 @@ import {
   CloudIcon,
   ArrowPathIcon,
 } from '@heroicons/react/24/outline';
+
+function speakingWritingBehindCloud(
+  local: { speakingTestResults: number; writingTestResults: number },
+  tables: { name: string; rowCount: number | null }[]
+): boolean {
+  const speakCloud = tables.find(t => t.name === 'speaking_test_results')?.rowCount ?? 0;
+  const writeCloud = tables.find(t => t.name === 'writing_test_results')?.rowCount ?? 0;
+  return (
+    (local.speakingTestResults > 0 && speakCloud < local.speakingTestResults) ||
+    (local.writingTestResults > 0 && writeCloud < local.writingTestResults)
+  );
+}
 
 export default function SettingsPage() {
   const { currentClassId, refreshClasses, mounted } = useApp();
@@ -175,13 +192,27 @@ export default function SettingsPage() {
   const handleTestSync = async () => {
     setSyncTestStatus('testing');
     setSyncTestResult(null);
+    const localCounts = {
+      speakingTests: getSpeakingTests().length,
+      speakingTestResults: getSpeakingTestResults().length,
+      writingTests: getWritingTests().length,
+      writingTestResults: getWritingTestResults().length,
+    };
+    let uploadError: string | undefined;
+    try {
+      await pushLocalDataToCloud();
+    } catch (e) {
+      uploadError = e instanceof Error ? e.message : 'Upload to cloud failed';
+    }
     try {
       const result = await testSupabaseSync();
-      setSyncTestResult(result);
+      setSyncTestResult({ ...result, localCounts, uploadError });
     } catch {
       setSyncTestResult({
         configured: false,
         connected: false,
+        uploadError,
+        localCounts,
         tables: [],
       });
     }
@@ -469,8 +500,14 @@ export default function SettingsPage() {
           <CloudIcon className="w-6 h-6" />
           Cloud Sync Status
         </h2>
-        <p className="text-gray-600 mb-6">
-          Your data is automatically backed up to Supabase cloud. Test the connection to verify everything is working.
+        <p className="text-gray-600 mb-4">
+          Your data is backed up to Supabase when you save. Speaking and writing scores entered before
+          cloud sync was enabled need a one-time upload from this browser.
+        </p>
+        <p className="text-sm text-gray-500 mb-6">
+          <strong>Test Cloud Sync</strong> uploads everything on this device, then shows how many rows
+          are stored in the cloud. &quot;Records&quot; is cloud only — compare with local counts below for
+          speaking/writing.
         </p>
 
         <button
@@ -481,12 +518,12 @@ export default function SettingsPage() {
           {syncTestStatus === 'testing' ? (
             <>
               <ArrowPathIcon className="w-5 h-5 animate-spin" />
-              Testing...
+              Uploading &amp; checking...
             </>
           ) : (
             <>
               <CloudIcon className="w-5 h-5" />
-              Test Cloud Sync
+              Upload &amp; test cloud sync
             </>
           )}
         </button>
@@ -517,6 +554,25 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {syncTestResult.uploadError && (
+              <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm">
+                <p className="font-medium">Upload failed</p>
+                <p className="mt-1">{syncTestResult.uploadError}</p>
+              </div>
+            )}
+
+            {syncTestResult.localCounts && (
+              <div className="p-4 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-700">
+                <p className="font-medium text-gray-900 mb-2">On this device (local)</p>
+                <ul className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <li>Speaking tests: {syncTestResult.localCounts.speakingTests}</li>
+                  <li>Speaking scores: {syncTestResult.localCounts.speakingTestResults}</li>
+                  <li>Writing tests: {syncTestResult.localCounts.writingTests}</li>
+                  <li>Writing scores: {syncTestResult.localCounts.writingTestResults}</li>
+                </ul>
+              </div>
+            )}
+
             {/* Tables Status */}
             {syncTestResult.tables.length > 0 && (
               <div className="border rounded-lg overflow-hidden">
@@ -525,7 +581,7 @@ export default function SettingsPage() {
                     <tr>
                       <th className="text-left px-4 py-2 font-medium">Data Type</th>
                       <th className="text-center px-4 py-2 font-medium">Status</th>
-                      <th className="text-right px-4 py-2 font-medium">Records</th>
+                      <th className="text-right px-4 py-2 font-medium">Cloud records</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -558,26 +614,42 @@ export default function SettingsPage() {
             )}
 
             {/* Summary */}
-            {syncTestResult.connected && (
-              <div className={`p-4 rounded-lg ${
-                syncTestResult.tables.every(t => t.exists)
-                  ? 'bg-green-50 border border-green-200'
-                  : 'bg-yellow-50 border border-yellow-200'
-              }`}>
-                {syncTestResult.tables.every(t => t.exists) ? (
-                  <p className="text-green-800 font-medium">
-                    All systems go! Your data is being backed up to the cloud.
-                  </p>
-                ) : (
-                  <div className="text-yellow-800">
-                    <p className="font-medium">Some tables are missing in Supabase.</p>
-                    <p className="text-sm mt-1">
-                      Data for missing tables will be stored locally only until you create them.
+            {syncTestResult.connected && (() => {
+              const allTables = syncTestResult.tables.every(t => t.exists);
+              const behind =
+                syncTestResult.localCounts &&
+                speakingWritingBehindCloud(syncTestResult.localCounts, syncTestResult.tables);
+              const boxClass = !allTables
+                ? 'bg-yellow-50 border border-yellow-200'
+                : behind || syncTestResult.uploadError
+                  ? 'bg-amber-50 border border-amber-200'
+                  : 'bg-green-50 border border-green-200';
+              return (
+                <div className={`p-4 rounded-lg ${boxClass}`}>
+                  {!allTables ? (
+                    <div className="text-yellow-800">
+                      <p className="font-medium">Some tables are missing in Supabase.</p>
+                      <p className="text-sm mt-1">
+                        Data for missing tables will be stored locally only until you create them.
+                      </p>
+                    </div>
+                  ) : behind ? (
+                    <p className="text-amber-800 font-medium">
+                      Speaking/writing scores on this device have not all reached the cloud yet. Check
+                      the upload error above, or edit a score again to trigger sync.
                     </p>
-                  </div>
-                )}
-              </div>
-            )}
+                  ) : syncTestResult.uploadError ? (
+                    <p className="text-amber-800 font-medium">
+                      Connection works, but the latest upload failed. Fix the error above and try again.
+                    </p>
+                  ) : (
+                    <p className="text-green-800 font-medium">
+                      All systems go! Your data is being backed up to the cloud.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
