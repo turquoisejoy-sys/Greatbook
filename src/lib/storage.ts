@@ -17,6 +17,7 @@ import {
   ISSTRecord,
   StudentNote,
 } from '@/types';
+import { importNamesMatch } from './calculations';
 import { getTeacherName, setTeacherName } from './teacher-settings';
 import { isSpeakingWritingSyncNote } from './speaking-writing-cloud-bridge';
 import {
@@ -628,17 +629,22 @@ export function moveStudent(studentId: string, newClassId: string): void {
 }
 
 export function findStudentByName(name: string, classId: string, includeInactive = false): Student | undefined {
-  const normalizedName = name.trim().toLowerCase();
-  return getStudentsByClass(classId, includeInactive).find(
-    s => s.name.trim().toLowerCase() === normalizedName
+  const trimmed = name.trim();
+  if (!trimmed) return undefined;
+  return getStudentsByClass(classId, includeInactive).find(s =>
+    importNamesMatch(trimmed, s.name),
   );
 }
 
-/** Finds a student by name in the class (including dropped). If none, creates a new active student. Used by CASAS import so scores attach to dropped students instead of creating duplicates. */
-export function findOrCreateStudent(name: string, classId: string): Student {
+/** Finds a student by name in the class (including dropped). If none, creates a new active student. */
+export function findOrCreateStudent(
+  name: string,
+  classId: string,
+  enrollmentDate?: string,
+): Student {
   const existing = findStudentByName(name, classId, true);
   if (existing) return existing;
-  return createStudent(name, classId);
+  return createStudent(name.trim(), classId, enrollmentDate);
 }
 
 // ============================================

@@ -440,6 +440,33 @@ export function normalizeNameForMatching(name: string): string {
   return stripParentheticalNicknames(name).toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
+/**
+ * Match a CASAS/import name to a roster name (handles nicknames in parentheses, middle names, reversed order).
+ */
+export function importNamesMatch(importName: string, rosterName: string): boolean {
+  const a = normalizeNameForMatching(importName);
+  const b = normalizeNameForMatching(rosterName);
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const partsA = a.split(' ').filter(Boolean);
+  const partsB = b.split(' ').filter(Boolean);
+  if (partsA.length < 2 || partsB.length < 2) return false;
+
+  const reversedA = [...partsA].reverse().join(' ');
+  const reversedB = [...partsB].reverse().join(' ');
+  if (reversedA === b || a === reversedB) return true;
+
+  const firstA = partsA[0];
+  const lastA = partsA[partsA.length - 1];
+  const firstB = partsB[0];
+  const lastB = partsB[partsB.length - 1];
+  return (
+    (firstA === firstB && lastA === lastB) ||
+    (firstA === lastB && lastA === firstB)
+  );
+}
+
 // ============================================
 // Retention Calculations
 // ============================================

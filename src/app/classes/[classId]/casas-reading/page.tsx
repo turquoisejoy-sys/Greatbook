@@ -10,6 +10,7 @@ import {
   addCASASTest,
   updateCASASTest,
   deleteCASASTest,
+  findOrCreateStudent,
   findStudentByName,
   updateClass,
   updateStudent,
@@ -46,6 +47,7 @@ export default function CASASReadingPage() {
     added: number;
     skipped: number;
     unmatched: string[];
+    created: string[];
     errors: string[];
     warnings: string[];
   } | null>(null);
@@ -149,23 +151,30 @@ export default function CASASReadingPage() {
     const result = await parseCASASFileFromInput(file);
     
     const unmatched: string[] = [];
+    const created: string[] = [];
     const matchedRows: Array<{ studentId: string; row: (typeof result.reading)[number] }> = [];
 
     for (const row of result.reading) {
-      const student = findStudentByName(row.studentName, classId, true);
+      let student = findStudentByName(row.studentName, classId, true);
       if (!student) {
-        unmatched.push(row.studentName);
-        continue;
+        student = findOrCreateStudent(row.studentName, classId, row.date);
+        if (!created.includes(row.studentName)) created.push(row.studentName);
       }
       matchedRows.push({ studentId: student.id, row });
     }
 
+    const rosterMatches = matchedRows.length - created.length;
     const proceed = window.confirm(
       [
-        `Import ${result.reading.length} reading rows from "${file.name}"?`,
-        `${matchedRows.length} row(s) match this class roster.`,
-        `${unmatched.length} row(s) have no name match and will be skipped.`,
-      ].join('\n')
+        `Import ${result.reading.length} reading row(s) from "${file.name}"?`,
+        `${rosterMatches} row(s) match existing students on this class roster.`,
+        created.length > 0
+          ? `${created.length} new student(s) will be added to this class: ${created.slice(0, 5).join(', ')}${created.length > 5 ? '…' : ''}.`
+          : '',
+        'Listening scores (forms ending in L) are imported on the CASAS Listening tab.',
+      ]
+        .filter(Boolean)
+        .join('\n')
     );
 
     if (!proceed) {
@@ -189,7 +198,7 @@ export default function CASASReadingPage() {
     }
 
     setLastImportTestIds(addedIds);
-    setShowImportResult({ added, skipped, unmatched, errors: result.errors, warnings: result.warnings });
+    setShowImportResult({ added, skipped, unmatched, created, errors: result.errors, warnings: result.warnings });
     refreshData(currentClass);
     setIsImporting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -425,6 +434,13 @@ export default function CASASReadingPage() {
                 Added {showImportResult.added} reading scores
                 {showImportResult.skipped > 0 && `, skipped ${showImportResult.skipped} duplicates`}
               </p>
+              {showImportResult.created.length > 0 && (
+                <p className="text-blue-800 mt-1 text-sm">
+                  Added {showImportResult.created.length} new student(s) to this class:{' '}
+                  {showImportResult.created.slice(0, 6).join(', ')}
+                  {showImportResult.created.length > 6 ? '…' : ''}
+                </p>
+              )}
               {showImportResult.unmatched.length > 0 && (
                 <p className="text-amber-800 mt-1 text-sm">
                   Skipped {showImportResult.unmatched.length} unmatched name(s):{' '}
