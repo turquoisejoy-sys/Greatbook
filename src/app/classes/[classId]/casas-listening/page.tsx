@@ -10,11 +10,11 @@ import {
   addCASASTest,
   updateCASASTest,
   deleteCASASTest,
-  findOrCreateStudent,
   findStudentByName,
   updateClass,
   updateStudent,
 } from '@/lib/storage';
+import { applyCasasParseResult } from '@/lib/casas-import';
 import { parseCASASFileFromInput, parseStudentGainsFileFromInput, normalizeStudentNameKey } from '@/lib/parsers';
 import { calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
@@ -43,9 +43,10 @@ export default function CASASListeningPage() {
   const [studentsWithTests, setStudentsWithTests] = useState<StudentWithTests[]>([]);
   const [maxTests, setMaxTests] = useState(0);
   const [showImportResult, setShowImportResult] = useState<{
-    added: number;
-    skipped: number;
-    unmatched: string[];
+    readingAdded: number;
+    readingSkipped: number;
+    listeningAdded: number;
+    listeningSkipped: number;
     created: string[];
     errors: string[];
     warnings: string[];
@@ -142,31 +143,14 @@ export default function CASASListeningPage() {
     setIsImporting(true);
     const result = await parseCASASFileFromInput(file);
     
-    const unmatched: string[] = [];
-    const created: string[] = [];
-    const matchedRows: Array<{ studentId: string; row: (typeof result.listening)[number] }> = [];
-
-    for (const row of result.listening) {
-      let student = findStudentByName(row.studentName, classId, true);
-      if (!student) {
-        student = findOrCreateStudent(row.studentName, classId, row.date);
-        if (!created.includes(row.studentName)) created.push(row.studentName);
-      }
-      matchedRows.push({ studentId: student.id, row });
-    }
-
-    const rosterMatches = matchedRows.length - created.length;
     const proceed = window.confirm(
       [
-        `Import ${result.listening.length} listening row(s) from "${file.name}"?`,
-        `${rosterMatches} row(s) match existing students on this class roster.`,
-        created.length > 0
-          ? `${created.length} new student(s) will be added to this class: ${created.slice(0, 5).join(', ')}${created.length > 5 ? '…' : ''}.`
-          : '',
-        'Reading scores (forms ending in R) are imported on the CASAS Reading tab.',
-      ]
-        .filter(Boolean)
-        .join('\n')
+        `Import CASAS scores from "${file.name}"?`,
+        `Reading rows in file: ${result.reading.length} (forms ending in R).`,
+        `Listening rows in file: ${result.listening.length} (forms ending in L).`,
+        'Both reading and listening scores will be imported for students on this class roster.',
+        'Students in the file who are not on this roster are skipped.',
+      ].join('\n')
     );
 
     if (!proceed) {
@@ -175,22 +159,18 @@ export default function CASASListeningPage() {
       return;
     }
 
-    let added = 0;
-    let skipped = 0;
-    const addedIds: string[] = [];
+    const applied = applyCasasParseResult(classId, result);
 
-    for (const { studentId, row } of matchedRows) {
-      const test = addCASASTest(studentId, 'listening', row.date, row.formNumber, row.score);
-      if (test) {
-        added++;
-        addedIds.push(test.id);
-      } else {
-        skipped++;
-      }
-    }
-
-    setLastImportTestIds(addedIds);
-    setShowImportResult({ added, skipped, unmatched, created, errors: result.errors, warnings: result.warnings });
+    setLastImportTestIds(applied.addedTestIds);
+    setShowImportResult({
+      readingAdded: applied.readingAdded,
+      readingSkipped: applied.readingSkipped,
+      listeningAdded: applied.listeningAdded,
+      listeningSkipped: applied.listeningSkipped,
+      created: applied.created,
+      errors: result.errors,
+      warnings: result.warnings,
+    });
     refreshData(currentClass);
     setIsImporting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -198,7 +178,9 @@ export default function CASASListeningPage() {
 
   const handleUndoLastImport = () => {
     if (lastImportTestIds.length === 0 || !currentClass) return;
-    const confirmUndo = window.confirm(`Undo last import and remove ${lastImportTestIds.length} listening score(s)?`);
+    const confirmUndo = window.confirm(
+      `Undo last import and remove ${lastImportTestIds.length} CASAS score(s) (reading and listening)?`,
+    );
     if (!confirmUndo) return;
     for (const testId of lastImportTestIds) {
       deleteCASASTest(testId);
@@ -421,21 +403,18 @@ export default function CASASListeningPage() {
             <div>
               <h3 className="font-semibold text-blue-900">Import Complete</h3>
               <p className="text-blue-800 mt-1">
-                Added {showImportResult.added} listening scores
-                {showImportResult.skipped > 0 && `, skipped ${showImportResult.skipped} duplicates`}
+                Added {showImportResult.readingAdded} reading score(s)
+                {showImportResult.readingSkipped > 0 &&
+                  ` (${showImportResult.readingSkipped} duplicate reading skipped)`}
+                ; added {showImportResult.listeningAdded} listening score(s)
+                {showImportResult.listeningSkipped > 0 &&
+                  ` (${showImportResult.listeningSkipped} duplicate listening skipped)`}
               </p>
               {showImportResult.created.length > 0 && (
                 <p className="text-blue-800 mt-1 text-sm">
                   Added {showImportResult.created.length} new student(s) to this class:{' '}
                   {showImportResult.created.slice(0, 6).join(', ')}
                   {showImportResult.created.length > 6 ? '…' : ''}
-                </p>
-              )}
-              {showImportResult.unmatched.length > 0 && (
-                <p className="text-amber-800 mt-1 text-sm">
-                  Skipped {showImportResult.unmatched.length} unmatched name(s):{' '}
-                  {showImportResult.unmatched.slice(0, 6).join(', ')}
-                  {showImportResult.unmatched.length > 6 ? '…' : ''}
                 </p>
               )}
               {showImportResult.errors.length > 0 && (
