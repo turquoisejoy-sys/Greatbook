@@ -187,6 +187,12 @@ export interface ArchivedYear {
     unitTests: UnitTest[];
     attendance: Attendance[];
     reportCards: ReportCard[];
+    speakingTests?: SpeakingTest[];
+    speakingTestResults?: SpeakingTestResult[];
+    writingTests?: WritingTest[];
+    writingTestResults?: WritingTestResult[];
+    studentNotes?: StudentNote[];
+    isstRecords?: ISSTRecord[];
   };
 }
 

@@ -7,7 +7,9 @@ When the app adds new fields, your **remote** database must have matching column
 ## Apply migrations
 
 1. Supabase Dashboard → **the correct project** → **SQL Editor** → New query.
-2. Paste the **entire** file `migrations/20250321120000_gradebook_sync_columns_and_tables.sql` → **Run**.
+2. Paste and run each migration file (in order):
+   - `migrations/20250321120000_gradebook_sync_columns_and_tables.sql`
+   - `migrations/20250527120000_speaking_writing_sync.sql` (speaking/writing scores sync across devices)
 3. Check the **Results** panel for errors (red). If anything failed, fix that before refreshing the app. A failed `CREATE TABLE` often means nothing after it ran (e.g. missing `public.students` or `students.id` type mismatch).
 
 The migration ends with `NOTIFY pgrst, 'reload schema';` so PostgREST picks up new columns/tables. If you still see **PGRST204** after a successful run, wait a minute, hard-refresh the app, or run that `NOTIFY` line once more in SQL Editor.

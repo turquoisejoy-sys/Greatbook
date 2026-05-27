@@ -12,6 +12,10 @@ import {
   Student,
   CASASTest,
   UnitTest,
+  SpeakingTest,
+  SpeakingTestResult,
+  WritingTest,
+  WritingTestResult,
   Attendance,
   ReportCard,
   StudentNote,
@@ -266,6 +270,80 @@ export async function uploadISSTRecords(records: ISSTRecord[]): Promise<void> {
   }
 }
 
+function normalizeSpeakingTestForCloud(test: SpeakingTest): Record<string, unknown> {
+  return toSnakeCase({
+    ...test,
+    exitAssessmentType: test.exitAssessmentType ?? 'none',
+  } as unknown as Record<string, unknown>);
+}
+
+function normalizeWritingTestForCloud(test: WritingTest): Record<string, unknown> {
+  return toSnakeCase({
+    ...test,
+    exitAssessmentType: test.exitAssessmentType ?? 'none',
+  } as unknown as Record<string, unknown>);
+}
+
+export async function uploadSpeakingTests(tests: SpeakingTest[]): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  if (tests.length === 0) return;
+
+  try {
+    const data = tests.map(t => normalizeSpeakingTestForCloud(t));
+    const { error } = await supabase.from('speaking_tests').upsert(data, { onConflict: 'id' });
+    if (error) {
+      console.log('speaking_tests sync skipped (table may not exist):', getSyncErrorMessage(error));
+    }
+  } catch {
+    console.log('speaking_tests sync skipped');
+  }
+}
+
+export async function uploadSpeakingTestResults(results: SpeakingTestResult[]): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  if (results.length === 0) return;
+
+  try {
+    const data = results.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
+    const { error } = await supabase.from('speaking_test_results').upsert(data, { onConflict: 'id' });
+    if (error) {
+      console.log('speaking_test_results sync skipped (table may not exist):', getSyncErrorMessage(error));
+    }
+  } catch {
+    console.log('speaking_test_results sync skipped');
+  }
+}
+
+export async function uploadWritingTests(tests: WritingTest[]): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  if (tests.length === 0) return;
+
+  try {
+    const data = tests.map(t => normalizeWritingTestForCloud(t));
+    const { error } = await supabase.from('writing_tests').upsert(data, { onConflict: 'id' });
+    if (error) {
+      console.log('writing_tests sync skipped (table may not exist):', getSyncErrorMessage(error));
+    }
+  } catch {
+    console.log('writing_tests sync skipped');
+  }
+}
+
+export async function uploadWritingTestResults(results: WritingTestResult[]): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  if (results.length === 0) return;
+
+  try {
+    const data = results.map(r => toSnakeCase(r as unknown as Record<string, unknown>));
+    const { error } = await supabase.from('writing_test_results').upsert(data, { onConflict: 'id' });
+    if (error) {
+      console.log('writing_test_results sync skipped (table may not exist):', getSyncErrorMessage(error));
+    }
+  } catch {
+    console.log('writing_test_results sync skipped');
+  }
+}
+
 // ============================================
 // Download Functions (Supabase -> Local)
 // ============================================
@@ -386,6 +464,78 @@ export async function downloadISSTRecords(): Promise<ISSTRecord[]> {
   }
 }
 
+export async function downloadSpeakingTests(): Promise<SpeakingTest[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  try {
+    const { data, error } = await supabase.from('speaking_tests').select('*');
+    if (error) {
+      console.log('speaking_tests download skipped (table may not exist)');
+      return [];
+    }
+    return (data || []).map(row => {
+      const test = toCamelCase(row) as unknown as SpeakingTest;
+      if (test.exitAssessmentType === undefined) test.exitAssessmentType = 'none';
+      return test;
+    });
+  } catch {
+    console.log('speaking_tests download skipped');
+    return [];
+  }
+}
+
+export async function downloadSpeakingTestResults(): Promise<SpeakingTestResult[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  try {
+    const { data, error } = await supabase.from('speaking_test_results').select('*');
+    if (error) {
+      console.log('speaking_test_results download skipped (table may not exist)');
+      return [];
+    }
+    return (data || []).map(row => toCamelCase(row) as unknown as SpeakingTestResult);
+  } catch {
+    console.log('speaking_test_results download skipped');
+    return [];
+  }
+}
+
+export async function downloadWritingTests(): Promise<WritingTest[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  try {
+    const { data, error } = await supabase.from('writing_tests').select('*');
+    if (error) {
+      console.log('writing_tests download skipped (table may not exist)');
+      return [];
+    }
+    return (data || []).map(row => {
+      const test = toCamelCase(row) as unknown as WritingTest;
+      if (test.exitAssessmentType === undefined) test.exitAssessmentType = 'none';
+      return test;
+    });
+  } catch {
+    console.log('writing_tests download skipped');
+    return [];
+  }
+}
+
+export async function downloadWritingTestResults(): Promise<WritingTestResult[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  try {
+    const { data, error } = await supabase.from('writing_test_results').select('*');
+    if (error) {
+      console.log('writing_test_results download skipped (table may not exist)');
+      return [];
+    }
+    return (data || []).map(row => toCamelCase(row) as unknown as WritingTestResult);
+  } catch {
+    console.log('writing_test_results download skipped');
+    return [];
+  }
+}
+
 // ============================================
 // Delete Functions (sync deletions)
 // ============================================
@@ -417,6 +567,10 @@ export async function uploadAllToCloud(data: {
   reportCards: ReportCard[];
   studentNotes?: StudentNote[];
   isstRecords?: ISSTRecord[];
+  speakingTests?: SpeakingTest[];
+  speakingTestResults?: SpeakingTestResult[];
+  writingTests?: WritingTest[];
+  writingTestResults?: WritingTestResult[];
 }): Promise<void> {
   if (!isSupabaseConfigured()) {
     console.log('Supabase not configured, skipping sync');
@@ -441,6 +595,16 @@ export async function uploadAllToCloud(data: {
     const validReportCards = data.reportCards.filter(r => finalStudentIds.has(r.studentId));
     const validStudentNotes = (data.studentNotes || []).filter(n => finalStudentIds.has(n.studentId));
     const validISSTRecords = (data.isstRecords || []).filter(r => finalStudentIds.has(r.studentId));
+    const validSpeakingTests = (data.speakingTests || []).filter(t => validClassIds.has(t.classId));
+    const validSpeakingTestIds = new Set(validSpeakingTests.map(t => t.id));
+    const validSpeakingResults = (data.speakingTestResults || []).filter(
+      r => finalStudentIds.has(r.studentId) && validSpeakingTestIds.has(r.testId),
+    );
+    const validWritingTests = (data.writingTests || []).filter(t => validClassIds.has(t.classId));
+    const validWritingTestIds = new Set(validWritingTests.map(t => t.id));
+    const validWritingResults = (data.writingTestResults || []).filter(
+      r => finalStudentIds.has(r.studentId) && validWritingTestIds.has(r.testId),
+    );
     
     // Upload in order (classes first due to foreign keys)
     await uploadClasses(data.classes);
@@ -451,6 +615,10 @@ export async function uploadAllToCloud(data: {
     await uploadReportCards(validReportCards);
     await uploadStudentNotes(validStudentNotes);
     await uploadISSTRecords(validISSTRecords);
+    await uploadSpeakingTests(validSpeakingTests);
+    await uploadSpeakingTestResults(validSpeakingResults);
+    await uploadWritingTests(validWritingTests);
+    await uploadWritingTestResults(validWritingResults);
     
     setSyncStatus('synced');
   } catch (error) {
@@ -473,6 +641,10 @@ export async function downloadAllFromCloud(): Promise<{
   reportCards: ReportCard[];
   studentNotes: StudentNote[];
   isstRecords: ISSTRecord[];
+  speakingTests: SpeakingTest[];
+  speakingTestResults: SpeakingTestResult[];
+  writingTests: WritingTest[];
+  writingTestResults: WritingTestResult[];
 } | null> {
   if (!isSupabaseConfigured()) {
     console.log('Supabase not configured, skipping download');
@@ -482,7 +654,20 @@ export async function downloadAllFromCloud(): Promise<{
   setSyncStatus('syncing');
   
   try {
-    const [classes, students, casasTests, unitTests, attendance, reportCards, studentNotes, isstRecords] = await Promise.all([
+    const [
+      classes,
+      students,
+      casasTests,
+      unitTests,
+      attendance,
+      reportCards,
+      studentNotes,
+      isstRecords,
+      speakingTests,
+      speakingTestResults,
+      writingTests,
+      writingTestResults,
+    ] = await Promise.all([
       downloadClasses(),
       downloadStudents(),
       downloadCASASTests(),
@@ -491,11 +676,28 @@ export async function downloadAllFromCloud(): Promise<{
       downloadReportCards(),
       downloadStudentNotes(),
       downloadISSTRecords(),
+      downloadSpeakingTests(),
+      downloadSpeakingTestResults(),
+      downloadWritingTests(),
+      downloadWritingTestResults(),
     ]);
     
     setSyncStatus('synced');
     
-    return { classes, students, casasTests, unitTests, attendance, reportCards, studentNotes, isstRecords };
+    return {
+      classes,
+      students,
+      casasTests,
+      unitTests,
+      attendance,
+      reportCards,
+      studentNotes,
+      isstRecords,
+      speakingTests,
+      speakingTestResults,
+      writingTests,
+      writingTestResults,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : getSyncErrorMessage(error);
     console.error('Download error:', message, error);
@@ -597,6 +799,10 @@ export async function testSupabaseSync(): Promise<SyncTestResult> {
     'report_cards',
     'student_notes',
     'isst_records',
+    'speaking_tests',
+    'speaking_test_results',
+    'writing_tests',
+    'writing_test_results',
   ];
   
   for (const tableName of tableNames) {

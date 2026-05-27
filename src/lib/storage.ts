@@ -17,6 +17,7 @@ import {
   ISSTRecord,
   StudentNote,
 } from '@/types';
+import { getTeacherName, setTeacherName } from './teacher-settings';
 import { queueSync, downloadAllFromCloud, isSupabaseConfigured, deleteFromCloud } from './sync';
 
 // ============================================
@@ -106,6 +107,10 @@ function triggerSync(): void {
     reportCards: getFromStorage<ReportCard[]>(STORAGE_KEYS.reportCards, []),
     studentNotes: getFromStorage<StudentNote[]>(STORAGE_KEYS.studentNotes, []),
     isstRecords: getFromStorage<ISSTRecord[]>(STORAGE_KEYS.isstRecords, []),
+    speakingTests: getFromStorage<SpeakingTest[]>(STORAGE_KEYS.speakingTests, []),
+    speakingTestResults: getFromStorage<SpeakingTestResult[]>(STORAGE_KEYS.speakingTestResults, []),
+    writingTests: getFromStorage<WritingTest[]>(STORAGE_KEYS.writingTests, []),
+    writingTestResults: getFromStorage<WritingTestResult[]>(STORAGE_KEYS.writingTestResults, []),
   });
 }
 
@@ -130,6 +135,10 @@ export async function syncFromCloud(): Promise<boolean> {
     const localReportCards = getFromStorage<ReportCard[]>(STORAGE_KEYS.reportCards, []);
     const localStudentNotes = getFromStorage<StudentNote[]>(STORAGE_KEYS.studentNotes, []);
     const localISSTRecords = getFromStorage<ISSTRecord[]>(STORAGE_KEYS.isstRecords, []);
+    const localSpeakingTests = getFromStorage<SpeakingTest[]>(STORAGE_KEYS.speakingTests, []);
+    const localSpeakingTestResults = getFromStorage<SpeakingTestResult[]>(STORAGE_KEYS.speakingTestResults, []);
+    const localWritingTests = getFromStorage<WritingTest[]>(STORAGE_KEYS.writingTests, []);
+    const localWritingTestResults = getFromStorage<WritingTestResult[]>(STORAGE_KEYS.writingTestResults, []);
 
     // Don't re-add classes/students the user deleted (cloud may still have them if delete failed)
     const deletedClassIds = getDeletedClassIdSet();
@@ -142,6 +151,20 @@ export async function syncFromCloud(): Promise<boolean> {
     const cloudReportCardsFiltered = cloudData.reportCards.filter(r => !deletedStudentIds.has(r.studentId));
     const cloudStudentNotesFiltered = cloudData.studentNotes.filter(n => !deletedStudentIds.has(n.studentId));
     const cloudISSTFiltered = cloudData.isstRecords.filter(r => !deletedStudentIds.has(r.studentId));
+    const cloudSpeakingTestsFiltered = cloudData.speakingTests.filter(
+      t => !deletedClassIds.has(t.classId),
+    );
+    const cloudSpeakingTestIds = new Set(cloudSpeakingTestsFiltered.map(t => t.id));
+    const cloudSpeakingResultsFiltered = cloudData.speakingTestResults.filter(
+      r => !deletedStudentIds.has(r.studentId) && cloudSpeakingTestIds.has(r.testId),
+    );
+    const cloudWritingTestsFiltered = cloudData.writingTests.filter(
+      t => !deletedClassIds.has(t.classId),
+    );
+    const cloudWritingTestIds = new Set(cloudWritingTestsFiltered.map(t => t.id));
+    const cloudWritingResultsFiltered = cloudData.writingTestResults.filter(
+      r => !deletedStudentIds.has(r.studentId) && cloudWritingTestIds.has(r.testId),
+    );
 
     // Merge function: combine local and cloud, prefer newer by updatedAt/createdAt
     function mergeArrays<T extends { id: string; updatedAt?: string; createdAt?: string }>(
@@ -180,6 +203,16 @@ export async function syncFromCloud(): Promise<boolean> {
     const mergedReportCards = mergeArrays(localReportCards, cloudReportCardsFiltered);
     const mergedStudentNotes = mergeArrays(localStudentNotes, cloudStudentNotesFiltered);
     const mergedISSTRecords = mergeArrays(localISSTRecords, cloudISSTFiltered);
+    const mergedSpeakingTests = mergeArrays(localSpeakingTests, cloudSpeakingTestsFiltered);
+    const mergedSpeakingTestResults = mergeArrays(
+      localSpeakingTestResults,
+      cloudSpeakingResultsFiltered,
+    );
+    const mergedWritingTests = mergeArrays(localWritingTests, cloudWritingTestsFiltered);
+    const mergedWritingTestResults = mergeArrays(
+      localWritingTestResults,
+      cloudWritingResultsFiltered,
+    );
     
     // Save merged data to local storage
     saveToStorage(STORAGE_KEYS.classes, mergedClasses);
@@ -190,6 +223,10 @@ export async function syncFromCloud(): Promise<boolean> {
     saveToStorage(STORAGE_KEYS.reportCards, mergedReportCards);
     saveToStorage(STORAGE_KEYS.studentNotes, mergedStudentNotes);
     saveToStorage(STORAGE_KEYS.isstRecords, mergedISSTRecords);
+    saveToStorage(STORAGE_KEYS.speakingTests, mergedSpeakingTests);
+    saveToStorage(STORAGE_KEYS.speakingTestResults, mergedSpeakingTestResults);
+    saveToStorage(STORAGE_KEYS.writingTests, mergedWritingTests);
+    saveToStorage(STORAGE_KEYS.writingTestResults, mergedWritingTestResults);
 
     // Retry cloud deletes for classes removed locally (e.g. prior delete failed due to RLS)
     if (deletedClassIds.size > 0) {
@@ -702,7 +739,7 @@ export function deleteUnitTest(testId: string): void {
 }
 
 // ============================================
-// Speaking tests (local only)
+// Speaking tests
 // ============================================
 
 export function getSpeakingTests(): SpeakingTest[] {
@@ -722,6 +759,7 @@ export function getSpeakingTests(): SpeakingTest[] {
 
 export function saveSpeakingTests(rows: SpeakingTest[]): void {
   saveToStorage(STORAGE_KEYS.speakingTests, rows);
+  triggerSync();
 }
 
 export function getSpeakingTestsByClass(classId: string): SpeakingTest[] {
@@ -776,6 +814,9 @@ export function updateSpeakingTest(
 export function deleteSpeakingTest(testId: string): void {
   saveSpeakingTests(getSpeakingTests().filter(t => t.id !== testId));
   saveSpeakingTestResults(getSpeakingTestResults().filter(r => r.testId !== testId));
+  deleteFromCloud('speaking_tests', testId).catch(err =>
+    console.error('Failed to delete speaking test from cloud:', err),
+  );
 }
 
 export function getSpeakingTestResults(): SpeakingTestResult[] {
@@ -784,6 +825,7 @@ export function getSpeakingTestResults(): SpeakingTestResult[] {
 
 export function saveSpeakingTestResults(rows: SpeakingTestResult[]): void {
   saveToStorage(STORAGE_KEYS.speakingTestResults, rows);
+  triggerSync();
 }
 
 export function getSpeakingResultsByTest(testId: string): SpeakingTestResult[] {
@@ -837,7 +879,7 @@ export function upsertSpeakingResultComment(testId: string, studentId: string, c
 }
 
 // ============================================
-// Writing tests (local only)
+// Writing tests
 // ============================================
 
 export function getWritingTests(): WritingTest[] {
@@ -857,6 +899,7 @@ export function getWritingTests(): WritingTest[] {
 
 export function saveWritingTests(rows: WritingTest[]): void {
   saveToStorage(STORAGE_KEYS.writingTests, rows);
+  triggerSync();
 }
 
 export function getWritingTestsByClass(classId: string): WritingTest[] {
@@ -911,6 +954,9 @@ export function updateWritingTest(
 export function deleteWritingTest(testId: string): void {
   saveWritingTests(getWritingTests().filter(t => t.id !== testId));
   saveWritingTestResults(getWritingTestResults().filter(r => r.testId !== testId));
+  deleteFromCloud('writing_tests', testId).catch(err =>
+    console.error('Failed to delete writing test from cloud:', err),
+  );
 }
 
 export function getWritingTestResults(): WritingTestResult[] {
@@ -919,6 +965,7 @@ export function getWritingTestResults(): WritingTestResult[] {
 
 export function saveWritingTestResults(rows: WritingTestResult[]): void {
   saveToStorage(STORAGE_KEYS.writingTestResults, rows);
+  triggerSync();
 }
 
 export function getWritingResultsByTest(testId: string): WritingTestResult[] {
@@ -1133,6 +1180,12 @@ export function archiveCurrentYear(yearName: string): ArchivedYear {
       unitTests: getUnitTests(),
       attendance: getAttendance(),
       reportCards: getReportCards(),
+      speakingTests: getSpeakingTests(),
+      speakingTestResults: getSpeakingTestResults(),
+      writingTests: getWritingTests(),
+      writingTestResults: getWritingTestResults(),
+      studentNotes: getStudentNotes(),
+      isstRecords: getISSTRecords(),
     },
   };
 
@@ -1147,6 +1200,12 @@ export function archiveCurrentYear(yearName: string): ArchivedYear {
   saveUnitTests([]);
   saveAttendance([]);
   saveReportCards([]);
+  saveSpeakingTests([]);
+  saveSpeakingTestResults([]);
+  saveWritingTests([]);
+  saveWritingTestResults([]);
+  saveStudentNotes([]);
+  saveISSTRecords([]);
   setCurrentClassId(null);
 
   return archive;
@@ -1385,7 +1444,14 @@ export function exportAllData(): string {
     reportCards: getReportCards(),
     studentNotes: getStudentNotes(),
     isstRecords: getISSTRecords(),
+    speakingTests: getSpeakingTests(),
+    speakingTestResults: getSpeakingTestResults(),
+    writingTests: getWritingTests(),
+    writingTestResults: getWritingTestResults(),
     archivedYears: getArchivedYears(),
+    deletedClassIds: Array.from(getDeletedClassIdSet()),
+    deletedStudentIds: Array.from(getDeletedStudentIdSet()),
+    teacherName: getTeacherName(),
     exportedAt: new Date().toISOString(),
   };
   return JSON.stringify(data, null, 2);
@@ -1402,7 +1468,21 @@ export function importAllData(jsonString: string): boolean {
     if (data.reportCards) saveReportCards(data.reportCards);
     if (data.studentNotes) saveStudentNotes(data.studentNotes);
     if (data.isstRecords) saveISSTRecords(data.isstRecords);
+    if (data.speakingTests) saveSpeakingTests(data.speakingTests);
+    if (data.speakingTestResults) saveSpeakingTestResults(data.speakingTestResults);
+    if (data.writingTests) saveWritingTests(data.writingTests);
+    if (data.writingTestResults) saveWritingTestResults(data.writingTestResults);
     if (data.archivedYears) saveArchivedYears(data.archivedYears);
+    if (Array.isArray(data.deletedClassIds)) {
+      saveToStorage(STORAGE_KEYS.deletedClassIds, data.deletedClassIds);
+    }
+    if (Array.isArray(data.deletedStudentIds)) {
+      saveToStorage(STORAGE_KEYS.deletedStudentIds, data.deletedStudentIds);
+    }
+    if (typeof data.teacherName === 'string') {
+      setTeacherName(data.teacherName);
+    }
+    triggerSync();
     return true;
   } catch {
     return false;

@@ -20,6 +20,26 @@ SELECT EXISTS (
   WHERE table_schema = 'public' AND table_name = 'isst_records'
 ) AS isst_records_exists;
 
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'speaking_tests'
+) AS speaking_tests_exists;
+
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'speaking_test_results'
+) AS speaking_test_results_exists;
+
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'writing_tests'
+) AS writing_tests_exists;
+
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'writing_test_results'
+) AS writing_test_results_exists;
+
 -- 3) students columns (sync may 400 if missing)
 SELECT column_name
 FROM information_schema.columns
