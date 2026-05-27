@@ -44,4 +44,6 @@ export {
   parseFinalScoreFileFromInput,
   type FinalScoreParseResult,
   type FinalScoreImportRow,
+  type FinalScoreColumnHint,
+  type FinalScoreParseOptions,
 } from './final-score-parser';

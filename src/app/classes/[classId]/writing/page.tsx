@@ -183,7 +183,10 @@ export default function WritingPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     setIsImporting(true);
-    const parsed = await parseFinalScoreFileFromInput(file);
+    const parsed = await parseFinalScoreFileFromInput(file, {
+      scoreColumnHint: 'writing',
+      classSchedule: currentClass?.schedule,
+    });
     let imported = 0;
     const unmatched: string[] = [];
 
@@ -242,41 +245,61 @@ export default function WritingPage() {
       {showCreateForm && (
         <div className="card p-4">
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <input
-              type="text"
-              value={newTitle}
-              onChange={e => setNewTitle(e.target.value)}
-              className="input"
-              placeholder="Test title"
-            />
-            <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="input" />
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={newTotalPoints}
-              onChange={e => setNewTotalPoints(e.target.value)}
-              className="input"
-              placeholder="Total points"
-            />
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={newPassingScore}
-              onChange={e => setNewPassingScore(e.target.value)}
-              className="input"
-              placeholder="Passing score"
-            />
-            <select
-              value={newExitAssessmentType}
-              onChange={e => setNewExitAssessmentType(e.target.value as 'none' | 'midterm' | 'final')}
-              className="input"
-            >
-              <option value="none">Regular test</option>
-              <option value="midterm">Midterm exit assessment</option>
-              <option value="final">Final exit assessment</option>
-            </select>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Test title</label>
+              <input
+                type="text"
+                value={newTitle}
+                onChange={e => setNewTitle(e.target.value)}
+                className="input w-full"
+                placeholder="e.g. Exit Assessment"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+              <input
+                type="date"
+                value={newDate}
+                onChange={e => setNewDate(e.target.value)}
+                className="input w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Total points</label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={newTotalPoints}
+                onChange={e => setNewTotalPoints(e.target.value)}
+                className="input w-full"
+                placeholder="e.g. 16"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Passing score</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newPassingScore}
+                onChange={e => setNewPassingScore(e.target.value)}
+                className="input w-full"
+                placeholder="e.g. 12"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Test type</label>
+              <select
+                value={newExitAssessmentType}
+                onChange={e => setNewExitAssessmentType(e.target.value as 'none' | 'midterm' | 'final')}
+                className="input w-full"
+              >
+                <option value="none">Regular test</option>
+                <option value="midterm">Midterm exit assessment</option>
+                <option value="final">Final exit assessment</option>
+              </select>
+            </div>
           </div>
           <div className="mt-3">
             <button type="button" className="btn btn-primary" onClick={createTest} disabled={!newTitle.trim()}>
@@ -317,7 +340,7 @@ export default function WritingPage() {
                 <p><span className="font-medium">Total points:</span> {selectedTest?.totalPoints ?? '—'}</p>
                 <p><span className="font-medium">Passing score:</span> {selectedTest?.passingScore ?? '—'}</p>
               </div>
-              <div className="flex justify-start md:justify-end gap-2">
+              <div className="flex justify-start md:justify-end gap-2 flex-wrap">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -330,6 +353,7 @@ export default function WritingPage() {
                   onClick={() => fileInputRef.current?.click()}
                   className="btn btn-secondary inline-flex items-center gap-2"
                   disabled={!selectedTest || isImporting}
+                  title="Excel/CSV with student name + Writing Score (e.g. Exit Assessments worksheet)"
                 >
                   <ArrowUpTrayIcon className="w-5 h-5" />
                   {isImporting ? 'Importing...' : 'Import scores'}
@@ -345,6 +369,10 @@ export default function WritingPage() {
                 </button>
               </div>
             </div>
+            <p className="text-xs text-gray-500">
+              Import accepts .xlsx, .xls, or .csv with student names and a <strong>Writing Score</strong> column
+              (including the Exit Assessments worksheet — uses the AM or PM sheet based on this class schedule).
+            </p>
           </div>
 
           {importSummary && (
