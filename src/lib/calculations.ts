@@ -57,6 +57,19 @@ export function getHighestCASASScore(tests: CASASTest[]): number | null {
   return Math.max(...validScores);
 }
 
+/** Test row with the highest valid CASAS score (ties: first encountered). */
+export function getHighestCASASTest(tests: CASASTest[]): CASASTest | null {
+  const valid = tests.filter((t): t is CASASTest & { score: number } => t.score !== null);
+  if (valid.length === 0) return null;
+  return valid.reduce((best, t) => (t.score > best.score ? t : best));
+}
+
+export function formatCasasFormScore(test: CASASTest | null): string {
+  if (!test || test.score === null) return '—';
+  const form = test.formNumber.trim();
+  return form ? `${form}/${test.score}` : String(test.score);
+}
+
 /**
  * Progress % toward target band: (score − levelStart) / (target − levelStart) × 100.
  * For CASAS tables, pass the student's **best** (highest) test score.

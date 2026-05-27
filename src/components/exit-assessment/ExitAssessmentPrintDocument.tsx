@@ -1,5 +1,6 @@
 'use client';
 
+import '@/app/tools/exit-assessment/exit-assessment-print.css';
 import React from 'react';
 import {
   countExitPasses,
@@ -198,8 +199,7 @@ export const ExitAssessmentPrintDocument = React.forwardRef<
   return (
     <div ref={ref} className="ea-print-root bg-[#ddd] print:bg-white">
       <p className="ea-screen-hint print:hidden">
-        Preview — open Print to verify two students per letter page, or use Download PDF for a file
-        generated from this same layout.
+        Preview — use Print (save as PDF) for two students per letter page.
       </p>
       {pages.map((pair, pageIdx) => (
         <section key={pageIdx} className="ea-print-page" aria-label={`Page ${pageIdx + 1}`}>

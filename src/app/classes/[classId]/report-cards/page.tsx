@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { useApp } from '@/components/AppShell';
 import {
@@ -15,6 +15,10 @@ import {
   getAttendanceByStudent,
   getISSTRecordsByStudent,
   getNotesByStudent,
+  getSpeakingTestsByClass,
+  getSpeakingTestResults,
+  getWritingTestsByClass,
+  getWritingTestResults,
 } from '@/lib/storage';
 import {
   getStudentStats,
@@ -23,7 +27,8 @@ import {
   getColorLevel,
   getColorClass,
 } from '@/lib/calculations';
-import { Student, Class, ReportCard, StudentWithStats, CASASTest, UnitTest, Attendance, ISSTRecord, StudentNote } from '@/types';
+import { Student, Class, ReportCard, StudentWithStats, CASASTest, UnitTest, Attendance, ISSTRecord, StudentNote, SpeakingTest, WritingTest } from '@/types';
+import { useTeacherName } from '@/hooks/useTeacherName';
 import { subscribeSyncStatus } from '@/lib/sync';
 import {
   PrinterIcon,
@@ -44,6 +49,35 @@ import {
   Cell,
   LabelList,
 } from 'recharts';
+
+function formatTodayPeriodName(): string {
+  return new Date().toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+type AssessmentScoreRow = {
+  testName: string;
+  score: number;
+  totalPoints: number;
+  percent: number;
+};
+
+function getStudentAssessmentScores(
+  studentId: string,
+  tests: Array<Pick<SpeakingTest | WritingTest, 'id' | 'title' | 'date' | 'totalPoints'>>,
+  results: Array<{ testId: string; studentId: string; score: number | null }>,
+): AssessmentScoreRow[] {
+  const sorted = [...tests].sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+  return sorted.flatMap(test => {
+    const result = results.find(r => r.testId === test.id && r.studentId === studentId);
+    if (!result || result.score === null || test.totalPoints <= 0) return [];
+    const percent = Math.max(0, Math.min(100, (result.score / test.totalPoints) * 100));
+    return [{ testName: test.title, score: result.score, totalPoints: test.totalPoints, percent }];
+  });
+}
 
 /** Fixed pixel size — ResponsiveContainer breaks in print when body uses visibility:hidden. */
 function CASASLineChart({
@@ -312,8 +346,9 @@ export default function ReportCardsPage() {
   const classId = params.classId as string;
   const printRef = useRef<HTMLDivElement>(null);
   const printing = usePrintMode();
-  const casasChartH = printing ? 110 : 140;
-  const attendanceChartH = printing ? 118 : 150;
+  const casasChartH = printing ? 100 : 140;
+  const attendanceChartH = printing ? 105 : 150;
+  const [teacherName] = useTeacherName();
 
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -324,14 +359,7 @@ export default function ReportCardsPage() {
   const [viewingPastCard, setViewingPastCard] = useState<ReportCard | null>(null);
   
   // Form state
-  const [periodName, setPeriodName] = useState(() => {
-    const now = new Date();
-    const month = now.getMonth();
-    const year = now.getFullYear();
-    if (month >= 7 && month <= 11) return `Fall ${year}`;
-    if (month >= 0 && month <= 4) return `Spring ${year}`;
-    return `Summer ${year}`;
-  });
+  const [periodName, setPeriodName] = useState(formatTodayPeriodName);
   const [teacherComments, setTeacherComments] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
@@ -343,6 +371,8 @@ export default function ReportCardsPage() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [isstRecords, setIsstRecords] = useState<ISSTRecord[]>([]);
   const [studentNotes, setStudentNotes] = useState<StudentNote[]>([]);
+  const [speakingTests, setSpeakingTests] = useState<SpeakingTest[]>([]);
+  const [writingTests, setWritingTests] = useState<WritingTest[]>([]);
 
   useEffect(() => {
     if (mounted) {
@@ -373,6 +403,8 @@ export default function ReportCardsPage() {
       setAttendance(getAttendanceByStudent(studentId));
       setIsstRecords(getISSTRecordsByStudent(studentId));
       setStudentNotes(getNotesByStudent(studentId));
+      setSpeakingTests(getSpeakingTestsByClass(classId));
+      setWritingTests(getWritingTestsByClass(classId));
     },
     [classId, currentClass],
   );
@@ -384,6 +416,7 @@ export default function ReportCardsPage() {
       setViewingPastCard(null);
       setTeacherComments('');
       setSaveMessage('');
+      setPeriodName(formatTodayPeriodName());
     }
   }, [selectedStudentId, currentClass, reloadLiveStudentData]);
 
@@ -439,12 +472,7 @@ export default function ReportCardsPage() {
   const handleNewCard = () => {
     setViewingPastCard(null);
     setTeacherComments('');
-    const now = new Date();
-    const month = now.getMonth();
-    const year = now.getFullYear();
-    if (month >= 7 && month <= 11) setPeriodName(`Fall ${year}`);
-    else if (month >= 0 && month <= 4) setPeriodName(`Spring ${year}`);
-    else setPeriodName(`Summer ${year}`);
+    setPeriodName(formatTodayPeriodName());
     if (selectedStudentId) reloadLiveStudentData(selectedStudentId);
   };
 
@@ -514,6 +542,24 @@ export default function ReportCardsPage() {
     return 'bg-red-100 text-red-800';
   };
 
+  const speakingScores = useMemo(() => {
+    if (!selectedStudentId) return [];
+    return getStudentAssessmentScores(
+      selectedStudentId,
+      speakingTests,
+      getSpeakingTestResults(),
+    );
+  }, [selectedStudentId, speakingTests]);
+
+  const writingScores = useMemo(() => {
+    if (!selectedStudentId) return [];
+    return getStudentAssessmentScores(
+      selectedStudentId,
+      writingTests,
+      getWritingTestResults(),
+    );
+  }, [selectedStudentId, writingTests]);
+
   if (!mounted) {
     return <div className="animate-pulse"><div className="h-8 bg-gray-200 rounded w-48"></div></div>;
   }
@@ -532,12 +578,14 @@ export default function ReportCardsPage() {
   const displayData = viewingPastCard ? {
     casasReadingProgress: viewingPastCard.casasReadingProgress,
     casasReadingAvg: viewingPastCard.casasReadingAvg,
-    casasReadingLast: viewingPastCard.casasReadingAvg, // Past cards stored avg, show as last
+    casasReadingLast: viewingPastCard.casasReadingAvg,
     casasListeningProgress: viewingPastCard.casasListeningProgress,
     casasListeningAvg: viewingPastCard.casasListeningAvg,
-    casasListeningLast: viewingPastCard.casasListeningAvg, // Past cards stored avg, show as last
+    casasListeningLast: viewingPastCard.casasListeningAvg,
     testAverage: viewingPastCard.testAverage,
     attendanceAverage: viewingPastCard.attendanceAverage,
+    speakingAverage: selectedStudent?.speakingAverage ?? null,
+    writingAverage: selectedStudent?.writingAverage ?? null,
     rank: viewingPastCard.rank,
     totalStudents: viewingPastCard.totalStudents,
     isComplete: viewingPastCard.rank !== null,
@@ -588,7 +636,7 @@ export default function ReportCardsPage() {
                   value={periodName}
                   onChange={(e) => setPeriodName(e.target.value)}
                   className="input"
-                  placeholder="e.g., Fall 2025"
+                  placeholder="e.g., May 27, 2026"
                 />
               </div>
               <button onClick={handlePrint} className="btn btn-secondary">
@@ -644,23 +692,25 @@ export default function ReportCardsPage() {
         <div ref={printRef} className="report-print-root space-y-6">
         <div className="card print:shadow-none print:border-none print:px-4 print:py-3 print:text-[11px] print:leading-tight print:[&_h2]:text-lg print:[&_h3]:text-base print:[&_h4]:text-sm">
           {/* Report Card Header */}
-          <div className="text-center border-b pb-4 mb-4 print:pb-2 print:mb-2">
-            <h2 className="text-2xl font-bold text-[var(--cace-navy)]">
-              Campbell Adult and Community Education
+          <div className="text-center border-b pb-3 mb-3 print:pb-1.5 print:mb-2">
+            <h2 className="text-2xl font-bold text-[var(--cace-navy)] print:text-xl">
+              Student Progress Report
             </h2>
-            <p className="text-[var(--cace-teal)] font-medium">Student Progress Report</p>
-            <p className="text-gray-600 mt-1 print:mt-0.5">{periodName}</p>
+            <p className="text-gray-600 mt-1 print:mt-0.5 print:text-sm">{periodName}</p>
           </div>
 
           {/* Student Info */}
-          <div className="flex justify-between items-start mb-6 pb-4 border-b print:mb-3 print:pb-2">
+          <div className="flex justify-between items-start mb-4 pb-3 border-b print:mb-2 print:pb-1.5">
             <div>
-              <h3 className="text-xl font-semibold text-[var(--cace-navy)]">
+              <h3 className="text-xl font-semibold text-[var(--cace-navy)] print:text-lg">
                 {selectedStudent.name}
               </h3>
-              <p className="text-gray-600">{currentClass.name} • {currentClass.schedule}</p>
-              <p className="text-sm text-gray-500">
+              <p className="text-gray-600 print:text-sm">{currentClass.name} • {currentClass.schedule}</p>
+              <p className="text-sm text-gray-500 print:text-xs">
                 Report Date: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </p>
+              <p className="text-sm text-gray-500 print:text-xs">
+                Teacher: {teacherName || '—'}
               </p>
             </div>
             <div className="text-right">
@@ -699,8 +749,8 @@ export default function ReportCardsPage() {
           </div>
 
           {/* CASAS Progress - Line Charts (screen: 2-col md+; print: always 2 columns, one row) */}
-          <div className="mb-6 casas-charts-section print:mb-3">
-            <h4 className="font-semibold text-[var(--cace-navy)] mb-3 print:mb-1.5">CASAS Progress</h4>
+          <div className="mb-4 casas-charts-section print:mb-2">
+            <h4 className="font-semibold text-[var(--cace-navy)] mb-2 print:mb-1">CASAS Progress</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-2 print:gap-2 print:items-start">
               {/* CASAS Reading Chart */}
               <div>
@@ -764,8 +814,8 @@ export default function ReportCardsPage() {
             </div>
           </div>
 
-          {/* Unit Tests & Attendance — grid row height = left column; right column flex pushes chart to bottom */}
-          <div className="mb-6 grid grid-cols-2 gap-6 text-sm print:mb-3 print:gap-3 items-stretch">
+          {/* Unit Tests & Attendance */}
+          <div className="mb-4 grid grid-cols-2 gap-6 text-sm print:mb-2 print:gap-2 items-stretch">
             {/* Unit Tests */}
             <div>
               <div className="flex justify-between items-center mb-2">
@@ -787,7 +837,7 @@ export default function ReportCardsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {unitTests.slice(0, 8).map(test => (
+                    {unitTests.slice(0, 5).map(test => (
                       <tr key={test.id} className="border-b border-gray-100">
                         <td className="py-1">{test.testName}</td>
                         <td className="py-1 text-right">
@@ -822,14 +872,86 @@ export default function ReportCardsPage() {
             </div>
           </div>
 
+          {/* Speaking & Writing */}
+          <div className="mb-4 grid grid-cols-2 gap-6 text-sm print:mb-2 print:gap-2">
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-semibold text-[var(--cace-navy)]">Speaking</h4>
+                {displayData.speakingAverage !== null && displayData.speakingAverage !== undefined && (
+                  <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.speakingAverage)}`}>
+                    Avg: {displayData.speakingAverage.toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              {speakingScores.length === 0 ? (
+                <p className="text-gray-400 text-xs">No speaking tests recorded</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1">Test</th>
+                      <th className="text-right py-1">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {speakingScores.slice(0, 5).map(row => (
+                      <tr key={row.testName} className="border-b border-gray-100">
+                        <td className="py-1">{row.testName}</td>
+                        <td className="py-1 text-right">
+                          <span className={`px-1.5 py-0.5 rounded ${getScoreBgColor(row.percent)}`}>
+                            {row.score}/{row.totalPoints}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-semibold text-[var(--cace-navy)]">Writing</h4>
+                {displayData.writingAverage !== null && displayData.writingAverage !== undefined && (
+                  <span className={`text-xs px-2 py-0.5 rounded ${getScoreBgColor(displayData.writingAverage)}`}>
+                    Avg: {displayData.writingAverage.toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              {writingScores.length === 0 ? (
+                <p className="text-gray-400 text-xs">No writing tests recorded</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1">Test</th>
+                      <th className="text-right py-1">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {writingScores.slice(0, 5).map(row => (
+                      <tr key={row.testName} className="border-b border-gray-100">
+                        <td className="py-1">{row.testName}</td>
+                        <td className="py-1 text-right">
+                          <span className={`px-1.5 py-0.5 rounded ${getScoreBgColor(row.percent)}`}>
+                            {row.score}/{row.totalPoints}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
           {/* Teacher Comments */}
-          <div className="border-t pt-4 print:pt-2">
-            <h4 className="font-semibold text-[var(--cace-navy)] mb-2 print:mb-1">Teacher Comments</h4>
+          <div className="border-t pt-3 print:pt-1.5">
+            <h4 className="font-semibold text-[var(--cace-navy)] mb-1.5 print:mb-0.5">Teacher Comments</h4>
             <textarea
               value={teacherComments}
               onChange={(e) => setTeacherComments(e.target.value)}
-              className="input text-sm print:border print:border-gray-300 print:rounded print:p-1.5 print:resize-none w-full print:min-h-[2.75rem] print:max-h-24 print:text-xs print:leading-snug"
-              rows={4}
+              className="input text-sm print:border print:border-gray-300 print:rounded print:p-1 print:resize-none w-full print:min-h-[2rem] print:max-h-16 print:text-xs print:leading-snug"
+              rows={3}
               placeholder="Comments on student progress, speaking/writing skills, areas for improvement..."
             />
           </div>
@@ -959,7 +1081,7 @@ export default function ReportCardsPage() {
             max-height: none !important;
             height: auto !important;
             min-height: 0 !important;
-            zoom: 0.94;
+            zoom: 0.91;
           }
           /* App shell: flex + min-h-screen reserves full viewport height when printing */
           body > div.flex.min-h-screen {

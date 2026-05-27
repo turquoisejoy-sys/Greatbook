@@ -1,15 +1,10 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useReactToPrint } from 'react-to-print';
-import {
-  ArrowDownTrayIcon,
-  ArrowLeftIcon,
-  ArrowUpTrayIcon,
-  PrinterIcon,
-} from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowUpTrayIcon, PrinterIcon } from '@heroicons/react/24/outline';
 import { useApp } from '@/components/AppShell';
 import {
   ExitAssessmentPrintDocument,
@@ -17,17 +12,15 @@ import {
 } from '@/components/exit-assessment/ExitAssessmentPrintDocument';
 import { getClasses, getStudentsByClass } from '@/lib/storage';
 import { formatLongDate } from '@/lib/exit-assessment';
+import { useTeacherName } from '@/hooks/useTeacherName';
 import {
   inferAmPmFromFilename,
   parseExitWorksheetCsv,
   worksheetRowsToDisplayName,
   type ParsedExitWorksheetRow,
 } from '@/lib/exit-assessment-csv';
-import { downloadExitAssessmentPdfFromElement } from '@/lib/exit-assessment-pdf';
 import type { CACELevel, Student } from '@/types';
 import './exit-assessment-print.css';
-
-const TEACHER_STORAGE_KEY = 'exitAssessmentTeacherName';
 
 type TabId = 'csv' | 'roster';
 
@@ -59,10 +52,7 @@ function ExitAssessmentToolContent() {
   const classIdFromUrl = searchParams.get('classId');
   const effectiveClassId = classIdFromUrl || currentClassId || '';
 
-  const [teacherName, setTeacherName] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(TEACHER_STORAGE_KEY) ?? '';
-  });
+  const [teacherName] = useTeacherName();
   const [exitDate, setExitDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [students, setStudents] = useState<Student[]>([]);
   const [scores, setScores] = useState<Record<string, { r: string; l: string; o: string; w: string }>>(
@@ -156,11 +146,6 @@ function ExitAssessmentToolContent() {
     }
   };
 
-  const persistTeacher = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(TEACHER_STORAGE_KEY, teacherName.trim());
-  }, [teacherName]);
-
   const onCsvPick = (fileList: FileList | null) => {
     const f = fileList?.[0];
     if (!f) return;
@@ -201,19 +186,6 @@ function ExitAssessmentToolContent() {
     setCsvParseNote(null);
   };
 
-  const runDownloadPdf = async (rootEl: HTMLElement | null, fileName: string) => {
-    if (!rootEl) {
-      window.alert('Show the preview first (import CSV or pick a class with students), then try again.');
-      return;
-    }
-    try {
-      await downloadExitAssessmentPdfFromElement(rootEl, fileName);
-    } catch (e) {
-      console.error(e);
-      window.alert('PDF export failed. Use “Print (browser)” and Save as PDF instead.');
-    }
-  };
-
   if (!mounted) {
     return (
       <div className="max-w-3xl mx-auto animate-pulse p-6">
@@ -245,8 +217,8 @@ function ExitAssessmentToolContent() {
           >
             static HTML preview
           </a>
-          ). Import the worksheet CSV or use a class roster; <strong>Download PDF</strong> captures
-          the preview below (same styles as the reference).
+          ). Import the worksheet CSV or use a class roster, then print the preview below (same
+          styles as the reference).
         </p>
       </div>
 
@@ -306,18 +278,14 @@ function ExitAssessmentToolContent() {
                   onChange={e => setExitDate(e.target.value)}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Teacher name (on PDF)</label>
-                <input
-                  type="text"
-                  className="input w-full"
-                  value={teacherName}
-                  onChange={e => setTeacherName(e.target.value)}
-                  onBlur={persistTeacher}
-                  placeholder="e.g. Katie Salsbury"
-                />
-              </div>
             </div>
+            <p className="text-xs text-gray-600">
+              Teacher on printout: <strong>{teacherName || '—'}</strong>
+              {' · '}
+              <Link href="/settings" className="text-[var(--cace-teal)] underline font-medium">
+                Set name in Settings
+              </Link>
+            </p>
 
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
@@ -396,23 +364,10 @@ function ExitAssessmentToolContent() {
                 <button
                   type="button"
                   className="btn btn-primary inline-flex items-center gap-2"
-                  onClick={() =>
-                    void runDownloadPdf(
-                      printCsvRef.current,
-                      csvFileName.replace(/\.csv$/i, '') || 'exit-assessment',
-                    )
-                  }
-                >
-                  <ArrowDownTrayIcon className="w-5 h-5" />
-                  Download PDF
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary inline-flex items-center gap-2"
                   onClick={() => handlePrintCsvPreview()}
                 >
                   <PrinterIcon className="w-5 h-5" />
-                  Print (browser)
+                  Print (save as PDF)
                 </button>
               </div>
             )}
@@ -437,26 +392,22 @@ function ExitAssessmentToolContent() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Exit date</label>
-                <input
-                  type="date"
-                  className="input w-full"
-                  value={exitDate}
-                  onChange={e => setExitDate(e.target.value)}
-                />
-              </div>
-            </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Teacher name (printout)</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Exit date</label>
               <input
-                type="text"
-                className="input w-full max-w-md"
-                value={teacherName}
-                onChange={e => setTeacherName(e.target.value)}
-                onBlur={persistTeacher}
-                placeholder="e.g. Katie Salsbury"
+                type="date"
+                className="input w-full"
+                value={exitDate}
+                onChange={e => setExitDate(e.target.value)}
               />
+            </div>
+            <p className="text-xs text-gray-600 sm:col-span-2">
+              Teacher on printout: <strong>{teacherName || '—'}</strong>
+              {' · '}
+              <Link href="/settings" className="text-[var(--cace-teal)] underline font-medium">
+                Set name in Settings
+              </Link>
+            </p>
             </div>
 
             {!effectiveClassId && (
@@ -478,7 +429,7 @@ function ExitAssessmentToolContent() {
               <>
                 <p className="text-xs text-gray-500">
                   CASAS pass lines: reading ≥ {readingPassMinRoster}, listening ≥ {listeningPassMinRoster}{' '}
-                  (from class targets). Enter scores, then download a PDF or print from the browser.
+                  (from class targets). Enter scores, then print from the browser (Save as PDF).
                 </p>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg">
                   <table className="min-w-full text-sm">
@@ -521,25 +472,10 @@ function ExitAssessmentToolContent() {
                   <button
                     type="button"
                     className="btn btn-primary inline-flex items-center gap-2"
-                    onClick={() =>
-                      void runDownloadPdf(
-                        printContentRef.current,
-                        selectedClass
-                          ? `exit-assessment-${selectedClass.name.replace(/\s+/g, '-')}`
-                          : 'exit-assessment',
-                      )
-                    }
-                  >
-                    <ArrowDownTrayIcon className="w-5 h-5" />
-                    Download PDF
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary inline-flex items-center gap-2"
                     onClick={() => handlePrintSheets()}
                   >
                     <PrinterIcon className="w-5 h-5" />
-                    Print (browser)
+                    Print (save as PDF)
                   </button>
                 </div>
               </>

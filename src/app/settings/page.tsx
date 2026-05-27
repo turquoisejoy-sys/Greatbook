@@ -11,6 +11,7 @@ import {
   DEFAULT_COLOR_THRESHOLDS,
 } from '@/lib/storage';
 import { testSupabaseSync } from '@/lib/sync';
+import { getTeacherName, setTeacherName } from '@/lib/teacher-settings';
 import { Class, RankingWeights, ColorThresholds } from '@/types';
 import {
   ArrowDownTrayIcon,
@@ -33,6 +34,14 @@ export default function SettingsPage() {
   const [importMessage, setImportMessage] = useState('');
   const [syncTestStatus, setSyncTestStatus] = useState<'idle' | 'testing' | 'done'>('idle');
   const [syncTestResult, setSyncTestResult] = useState<Awaited<ReturnType<typeof testSupabaseSync>> | null>(null);
+  const [teacherName, setTeacherNameState] = useState('');
+  const [teacherNameSaved, setTeacherNameSaved] = useState(false);
+
+  useEffect(() => {
+    if (mounted) {
+      setTeacherNameState(getTeacherName());
+    }
+  }, [mounted]);
 
   useEffect(() => {
     if (mounted && currentClassId) {
@@ -47,6 +56,12 @@ export default function SettingsPage() {
       setCurrentClass(null);
     }
   }, [mounted, currentClassId]);
+
+  const handleSaveTeacherName = () => {
+    setTeacherName(teacherName);
+    setTeacherNameSaved(true);
+    setTimeout(() => setTeacherNameSaved(false), 2000);
+  };
 
   const handleWeightChange = (key: keyof RankingWeights, value: number) => {
     setWeights(prev => ({ ...prev, [key]: value }));
@@ -190,6 +205,39 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-3xl font-bold text-[var(--cace-navy)]">Settings</h1>
         <p className="text-gray-600 mt-1">Configure class settings and manage your data</p>
+      </div>
+
+      {/* Teacher profile — used on report cards and exit assessment printouts */}
+      <div className="card">
+        <h2 className="text-xl font-semibold text-[var(--cace-navy)] mb-4">
+          Teacher Profile
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Your name appears on student report cards and exit assessment printouts. Set it once here.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[200px] max-w-md">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Teacher name
+            </label>
+            <input
+              type="text"
+              value={teacherName}
+              onChange={e => setTeacherNameState(e.target.value)}
+              className="input w-full"
+              placeholder="e.g. Katie Salsbury"
+            />
+          </div>
+          <button type="button" onClick={handleSaveTeacherName} className="btn btn-primary">
+            Save Name
+          </button>
+          {teacherNameSaved && (
+            <span className="flex items-center gap-1 text-green-600 text-sm">
+              <CheckCircleIcon className="w-5 h-5" />
+              Saved!
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Class Settings */}
