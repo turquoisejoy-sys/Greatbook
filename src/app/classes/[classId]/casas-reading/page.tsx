@@ -14,7 +14,9 @@ import {
   updateClass,
   updateStudent,
 } from '@/lib/storage';
-import { applyCasasParseResult } from '@/lib/casas-import';
+import { applyCasasParseResult, type CasasImportApplyResult } from '@/lib/casas-import';
+import { getCloudSyncPayload } from '@/lib/storage';
+import { forceSyncNow } from '@/lib/sync';
 import { parseCASASFileFromInput, parseStudentGainsFileFromInput, normalizeStudentNameKey } from '@/lib/parsers';
 import { calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
@@ -43,15 +45,9 @@ export default function CASASReadingPage() {
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [studentsWithTests, setStudentsWithTests] = useState<StudentWithTests[]>([]);
   const [maxTests, setMaxTests] = useState(0);
-  const [showImportResult, setShowImportResult] = useState<{
-    readingAdded: number;
-    readingSkipped: number;
-    listeningAdded: number;
-    listeningSkipped: number;
-    created: string[];
-    errors: string[];
-    warnings: string[];
-  } | null>(null);
+  const [showImportResult, setShowImportResult] = useState<
+    (CasasImportApplyResult & { errors: string[] }) | null
+  >(null);
   const [lastImportTestIds, setLastImportTestIds] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [isGainsImporting, setIsGainsImporting] = useState(false);
@@ -151,13 +147,13 @@ export default function CASASReadingPage() {
     setIsImporting(true);
     const result = await parseCASASFileFromInput(file);
     
+    const rosterCount = getStudentsByClass(classId, true).length;
     const proceed = window.confirm(
       [
         `Import CASAS scores from "${file.name}"?`,
-        `Reading rows in file: ${result.reading.length} (forms ending in R).`,
-        `Listening rows in file: ${result.listening.length} (forms ending in L).`,
-        'Both reading and listening scores will be imported for students on this class roster.',
-        'Students in the file who are not on this roster are skipped.',
+        `Reading rows in file: ${result.reading.length}; listening rows: ${result.listening.length}.`,
+        `Only students on THIS class roster (${rosterCount} names, including dropped) will receive scores.`,
+        'Rows for anyone not on this roster are skipped (normal for program-wide exports).',
       ].join('\n')
     );
 
@@ -169,16 +165,16 @@ export default function CASASReadingPage() {
 
     const applied = applyCasasParseResult(classId, result);
 
+    try {
+      await forceSyncNow(getCloudSyncPayload());
+    } catch (e) {
+      applied.warnings.push(
+        e instanceof Error ? e.message : 'Cloud backup failed after import; scores are saved on this device.',
+      );
+    }
+
     setLastImportTestIds(applied.addedTestIds);
-    setShowImportResult({
-      readingAdded: applied.readingAdded,
-      readingSkipped: applied.readingSkipped,
-      listeningAdded: applied.listeningAdded,
-      listeningSkipped: applied.listeningSkipped,
-      created: applied.created,
-      errors: result.errors,
-      warnings: result.warnings,
-    });
+    setShowImportResult({ ...applied, errors: result.errors });
     refreshData(currentClass);
     setIsImporting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -420,12 +416,38 @@ export default function CASASReadingPage() {
                 {showImportResult.listeningSkipped > 0 &&
                   ` (${showImportResult.listeningSkipped} duplicate listening skipped)`}
               </p>
-              {showImportResult.created.length > 0 && (
-                <p className="text-blue-800 mt-1 text-sm">
-                  Added {showImportResult.created.length} new student(s) to this class:{' '}
-                  {showImportResult.created.slice(0, 6).join(', ')}
-                  {showImportResult.created.length > 6 ? '…' : ''}
+              {showImportResult.studentsUpdated.length > 0 && (
+                <p className="text-blue-800 mt-2 text-sm">
+                  Updated {showImportResult.studentsUpdated.length} student(s), e.g.{' '}
+                  {showImportResult.studentsUpdated
+                    .slice(0, 5)
+                    .map(
+                      s =>
+                        `${s.studentName} (${s.readingAdded}R/${s.listeningAdded}L)`,
+                    )
+                    .join('; ')}
+                  {showImportResult.studentsUpdated.length > 5 ? '…' : ''}
                 </p>
+              )}
+              {showImportResult.rosterNotFoundNames.length > 0 && (
+                <p className="text-amber-800 mt-2 text-sm">
+                  In the file but not on this roster (not imported):{' '}
+                  {showImportResult.rosterNotFoundNames.slice(0, 8).join(', ')}
+                  {showImportResult.rosterNotFoundNames.length > 8 ? '…' : ''}. Import from the class
+                  where those students appear under Students.
+                </p>
+              )}
+              {showImportResult.rosterSkipped > 0 && (
+                <p className="text-gray-700 mt-1 text-sm">
+                  Skipped {showImportResult.rosterSkipped} row(s) for names not on this roster.
+                </p>
+              )}
+              {showImportResult.warnings.length > 0 && (
+                <ul className="mt-2 text-amber-800 text-sm list-disc list-inside">
+                  {showImportResult.warnings.slice(0, 8).map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
               )}
               {showImportResult.errors.length > 0 && (
                 <ul className="mt-2 text-red-700 text-sm list-disc list-inside">

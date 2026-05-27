@@ -676,10 +676,12 @@ export function addCASASTest(
   // Check for duplicate (same date + form + score)
   const tests = getCASASTests();
   const isDuplicate = tests.some(
-    t => t.studentId === studentId && 
-         t.date === date && 
-         t.formNumber === formNumber && 
-         t.score === score
+    t =>
+      t.studentId === studentId &&
+      t.type === type &&
+      t.date === date &&
+      t.formNumber === formNumber &&
+      t.score === score,
   );
   if (isDuplicate) return null;
 
