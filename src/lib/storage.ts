@@ -18,6 +18,7 @@ import {
   StudentNote,
 } from '@/types';
 import { getTeacherName, setTeacherName } from './teacher-settings';
+import { isSpeakingWritingSyncNote } from './speaking-writing-cloud-bridge';
 import {
   queueSync,
   downloadAllFromCloud,
@@ -1234,7 +1235,8 @@ export function archiveCurrentYear(yearName: string): ArchivedYear {
 function getStudentNotes(): StudentNote[] {
   if (typeof window === 'undefined') return [];
   const data = localStorage.getItem(STORAGE_KEYS.studentNotes);
-  return data ? JSON.parse(data) : [];
+  const notes: StudentNote[] = data ? JSON.parse(data) : [];
+  return notes.filter(n => !isSpeakingWritingSyncNote(n));
 }
 
 function saveStudentNotes(notes: StudentNote[]): void {

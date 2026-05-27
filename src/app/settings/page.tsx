@@ -15,7 +15,7 @@ import {
   DEFAULT_RANKING_WEIGHTS,
   DEFAULT_COLOR_THRESHOLDS,
 } from '@/lib/storage';
-import { testSupabaseSync } from '@/lib/sync';
+import { syncMissingTableHint, testSupabaseSync } from '@/lib/sync';
 import { getTeacherName, setTeacherName } from '@/lib/teacher-settings';
 import { Class, RankingWeights, ColorThresholds } from '@/types';
 import {
@@ -500,14 +500,9 @@ export default function SettingsPage() {
           <CloudIcon className="w-6 h-6" />
           Cloud Sync Status
         </h2>
-        <p className="text-gray-600 mb-4">
-          Your data is backed up to Supabase when you save. Speaking and writing scores entered before
-          cloud sync was enabled need a one-time upload from this browser.
-        </p>
-        <p className="text-sm text-gray-500 mb-6">
-          <strong>Test Cloud Sync</strong> uploads everything on this device, then shows how many rows
-          are stored in the cloud. &quot;Records&quot; is cloud only — compare with local counts below for
-          speaking/writing.
+        <p className="text-gray-600 mb-6">
+          Your data is backed up to Supabase when you save. Use <strong>Upload &amp; test cloud sync</strong>{' '}
+          to push everything from this device and confirm speaking/writing scores are in the cloud.
         </p>
 
         <button
@@ -554,12 +549,16 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {syncTestResult.uploadError && (
-              <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm">
-                <p className="font-medium">Upload failed</p>
-                <p className="mt-1">{syncTestResult.uploadError}</p>
-              </div>
-            )}
+            {syncTestResult.uploadError && (() => {
+              const missingTableHint = syncMissingTableHint(syncTestResult.uploadError!);
+              return (
+                <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm">
+                  <p className="font-medium">Upload failed</p>
+                  <p className="mt-1">{syncTestResult.uploadError}</p>
+                  {missingTableHint && <p className="mt-3 font-medium">{missingTableHint}</p>}
+                </div>
+              );
+            })()}
 
             {syncTestResult.localCounts && (
               <div className="p-4 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-700">

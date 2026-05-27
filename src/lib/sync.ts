@@ -8,6 +8,13 @@
 
 import { supabase } from './supabase';
 import {
+  buildSpeakingWritingSyncNotesForUpload,
+  countSpeakingWritingInSyncNotes,
+  isSpeakingWritingSyncNote,
+  parseSpeakingWritingFromSyncNotes,
+  stripSpeakingWritingSyncNotes,
+} from './speaking-writing-cloud-bridge';
+import {
   Class,
   Student,
   CASASTest,
@@ -115,10 +122,47 @@ export function getSyncErrorMessage(error: unknown): string {
   }
 }
 
+/** True when dedicated speaking/writing tables exist in Supabase. */
+export async function speakingWritingTablesExist(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const { error } = await supabase.from('speaking_tests').select('id').limit(1);
+  if (!error) return true;
+  const code = (error as { code?: string }).code;
+  return code !== 'PGRST205';
+}
+
+function mergeRecordsById<T extends { id: string }>(a: T[], b: T[]): T[] {
+  const merged = new Map<string, T>();
+  a.forEach(item => merged.set(item.id, item));
+  b.forEach(item => merged.set(item.id, item));
+  return Array.from(merged.values());
+}
+
 function throwSyncError(context: string, error: unknown): never {
   const msg = getSyncErrorMessage(error);
   console.error(`${context}:`, msg, error);
   throw new Error(`${context}: ${msg}`);
+}
+
+/** Actionable hint when PostgREST reports a missing table (PGRST205). */
+export function syncMissingTableHint(errorMessage: string): string | null {
+  if (
+    !errorMessage.includes('PGRST205') &&
+    !/Could not find the table/i.test(errorMessage)
+  ) {
+    return null;
+  }
+  if (/speaking_|writing_/i.test(errorMessage)) {
+    return (
+      'Speaking/writing tables are not in your Supabase project yet. In the Supabase Dashboard ' +
+      '(the project that matches your app URL) open SQL Editor, paste and run ' +
+      'supabase/migrations/20250527120000_speaking_writing_sync.sql from this repo, then try upload again.'
+    );
+  }
+  return (
+    'A required table is missing in Supabase. Run the migrations listed in supabase/README.md ' +
+    'in SQL Editor for your project, then try upload again.'
+  );
 }
 
 // ============================================
@@ -597,12 +641,27 @@ export async function uploadAllToCloud(data: {
     await uploadUnitTests(validUnitTests);
     await uploadAttendance(validAttendance);
     await uploadReportCards(validReportCards);
-    await uploadStudentNotes(validStudentNotes);
+    const userStudentNotes = validStudentNotes.filter(n => !isSpeakingWritingSyncNote(n));
+    const useSpeakingWritingTables = await speakingWritingTablesExist();
+
+    if (useSpeakingWritingTables) {
+      await uploadSpeakingTests(validSpeakingTests);
+      await uploadSpeakingTestResults(validSpeakingResults);
+      await uploadWritingTests(validWritingTests);
+      await uploadWritingTestResults(validWritingResults);
+      await uploadStudentNotes(userStudentNotes);
+    } else {
+      const bridgeNotes = buildSpeakingWritingSyncNotesForUpload(
+        validStudents,
+        validSpeakingTests,
+        validSpeakingResults,
+        validWritingTests,
+        validWritingResults,
+      );
+      await uploadStudentNotes([...userStudentNotes, ...bridgeNotes]);
+    }
+
     await uploadISSTRecords(validISSTRecords);
-    await uploadSpeakingTests(validSpeakingTests);
-    await uploadSpeakingTestResults(validSpeakingResults);
-    await uploadWritingTests(validWritingTests);
-    await uploadWritingTestResults(validWritingResults);
     
     setSyncStatus('synced');
   } catch (error) {
@@ -645,12 +704,12 @@ export async function downloadAllFromCloud(): Promise<{
       unitTests,
       attendance,
       reportCards,
-      studentNotes,
+      studentNotesRaw,
       isstRecords,
-      speakingTests,
-      speakingTestResults,
-      writingTests,
-      writingTestResults,
+      speakingTestsTable,
+      speakingTestResultsTable,
+      writingTestsTable,
+      writingTestResultsTable,
     ] = await Promise.all([
       downloadClasses(),
       downloadStudents(),
@@ -665,6 +724,19 @@ export async function downloadAllFromCloud(): Promise<{
       downloadWritingTests(),
       downloadWritingTestResults(),
     ]);
+
+    const fromBridge = parseSpeakingWritingFromSyncNotes(studentNotesRaw);
+    const studentNotes = stripSpeakingWritingSyncNotes(studentNotesRaw);
+    const speakingTests = mergeRecordsById(speakingTestsTable, fromBridge.speakingTests);
+    const speakingTestResults = mergeRecordsById(
+      speakingTestResultsTable,
+      fromBridge.speakingTestResults,
+    );
+    const writingTests = mergeRecordsById(writingTestsTable, fromBridge.writingTests);
+    const writingTestResults = mergeRecordsById(
+      writingTestResultsTable,
+      fromBridge.writingTestResults,
+    );
     
     setSyncStatus('synced');
     
@@ -800,21 +872,49 @@ export async function testSupabaseSync(): Promise<SyncTestResult> {
     'writing_test_results',
   ];
   
+  let bridgeCounts: ReturnType<typeof countSpeakingWritingInSyncNotes> | null = null;
+
   for (const tableName of tableNames) {
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from(tableName)
         .select('id', { count: 'exact', head: true });
       
       if (error) {
-        result.tables.push({
-          name: tableName,
-          exists: false,
-          rowCount: null,
-          error: error.message || 'Table not found',
-        });
+        const isMissingSpeakingWriting =
+          (error as { code?: string }).code === 'PGRST205' &&
+          (tableName === 'speaking_tests' ||
+            tableName === 'speaking_test_results' ||
+            tableName === 'writing_tests' ||
+            tableName === 'writing_test_results');
+
+        if (isMissingSpeakingWriting) {
+          if (!bridgeCounts) {
+            const notes = await downloadStudentNotes();
+            bridgeCounts = countSpeakingWritingInSyncNotes(notes);
+          }
+          const rowCount =
+            tableName === 'speaking_tests'
+              ? bridgeCounts.speakingTests
+              : tableName === 'speaking_test_results'
+                ? bridgeCounts.speakingTestResults
+                : tableName === 'writing_tests'
+                  ? bridgeCounts.writingTests
+                  : bridgeCounts.writingTestResults;
+          result.tables.push({
+            name: tableName,
+            exists: true,
+            rowCount,
+          });
+        } else {
+          result.tables.push({
+            name: tableName,
+            exists: false,
+            rowCount: null,
+            error: error.message || 'Table not found',
+          });
+        }
       } else {
-        // Get actual count
         const { count } = await supabase
           .from(tableName)
           .select('*', { count: 'exact', head: true });
@@ -825,7 +925,7 @@ export async function testSupabaseSync(): Promise<SyncTestResult> {
           rowCount: count ?? 0,
         });
       }
-    } catch (err) {
+    } catch {
       result.tables.push({
         name: tableName,
         exists: false,
