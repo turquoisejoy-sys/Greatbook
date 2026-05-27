@@ -437,7 +437,13 @@ export function sortStudentsByLastName<T extends { name: string }>(students: T[]
  * Normalize a name for fuzzy matching (lowercase, trim, remove extra spaces)
  */
 export function normalizeNameForMatching(name: string): string {
-  return stripParentheticalNicknames(name).toLowerCase().trim().replace(/\s+/g, ' ');
+  return stripParentheticalNicknames(name)
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 /**

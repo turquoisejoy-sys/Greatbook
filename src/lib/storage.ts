@@ -17,7 +17,7 @@ import {
   ISSTRecord,
   StudentNote,
 } from '@/types';
-import { importNamesMatch } from './calculations';
+import { importNamesMatch, normalizeNameForMatching } from './calculations';
 import { getTeacherName, setTeacherName } from './teacher-settings';
 import { isSpeakingWritingSyncNote } from './speaking-writing-cloud-bridge';
 import {
@@ -664,6 +664,60 @@ export function getCASASTestsByStudent(studentId: string, type?: 'reading' | 'li
   return getCASASTests().filter(t => 
     t.studentId === studentId && (!type || t.type === type)
   );
+}
+
+/**
+ * If the same name exists twice (e.g. dropped + active), move CASAS scores onto the active student.
+ */
+export function reconcileDuplicateStudentCasasForClass(classId: string): string[] {
+  const messages: string[] = [];
+  const roster = getStudentsByClass(classId, true);
+  const byName = new Map<string, Student[]>();
+  for (const student of roster) {
+    const key = normalizeNameForMatching(student.name);
+    if (!key) continue;
+    const group = byName.get(key) ?? [];
+    group.push(student);
+    byName.set(key, group);
+  }
+
+  const tests = getCASASTests();
+  let changed = false;
+
+  for (const [, group] of byName) {
+    if (group.length < 2) continue;
+    const active = group.filter(s => !s.isDropped && !s.isPromoted);
+    const inactive = group.filter(s => s.isDropped || s.isPromoted);
+    if (active.length !== 1 || inactive.length === 0) continue;
+
+    const target = active[0];
+    let moved = 0;
+    for (const inactiveStudent of inactive) {
+      for (const test of tests) {
+        if (test.studentId !== inactiveStudent.id) continue;
+        const alreadyOnActive = tests.some(
+          t =>
+            t.studentId === target.id &&
+            t.type === test.type &&
+            t.date === test.date &&
+            t.formNumber === test.formNumber &&
+            t.score === test.score,
+        );
+        if (alreadyOnActive) continue;
+        test.studentId = target.id;
+        moved++;
+        changed = true;
+      }
+    }
+    if (moved > 0) {
+      messages.push(
+        `Moved ${moved} CASAS score(s) for "${target.name}" from an old duplicate entry onto the active roster.`,
+      );
+    }
+  }
+
+  if (changed) saveCASASTests(tests);
+  return messages;
 }
 
 export function addCASASTest(

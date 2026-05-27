@@ -423,10 +423,16 @@ export default function CASASReadingPage() {
                     .slice(0, 5)
                     .map(
                       s =>
-                        `${s.studentName} (${s.readingAdded}R/${s.listeningAdded}L)`,
+                        `${s.studentName} (+${s.readingAdded}R/+${s.listeningAdded}L, now ${s.readingTotal}R/${s.listeningTotal}L total)`,
                     )
                     .join('; ')}
                   {showImportResult.studentsUpdated.length > 5 ? '…' : ''}
+                </p>
+              )}
+              {showImportResult.rosterWrongClassHints.length > 0 && (
+                <p className="text-amber-800 mt-2 text-sm">
+                  Found in another class: {showImportResult.rosterWrongClassHints.slice(0, 5).join('; ')}
+                  {showImportResult.rosterWrongClassHints.length > 5 ? '…' : ''}
                 </p>
               )}
               {showImportResult.rosterNotFoundNames.length > 0 && (
