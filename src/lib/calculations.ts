@@ -360,34 +360,58 @@ export function getColorClass(level: ColorLevel | null): string {
 // Name Sorting
 // ============================================
 
-/**
- * Extract last name from a full name (assumes "First Last" or "First Middle Last" format)
- */
-export function getLastName(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/);
-  return parts[parts.length - 1] || fullName;
+function nameParts(fullName: string): string[] {
+  return fullName.trim().split(/\s+/).filter(Boolean);
 }
 
 /**
- * Extract first name from a full name
+ * Primary surname used for alphabetization.
+ * - One word: that word
+ * - Two words: second word (single surname)
+ * - Three or more: first surname (word before the final surname), e.g. Martinez in "Maria Martinez Aguilar"
+ */
+export function getLastName(fullName: string): string {
+  const parts = nameParts(fullName);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return parts[1];
+  return parts[parts.length - 2];
+}
+
+/**
+ * Second surname when present (e.g. Aguilar in "Maria Martinez Aguilar"); empty otherwise.
+ */
+export function getSecondLastName(fullName: string): string {
+  const parts = nameParts(fullName);
+  if (parts.length >= 3) return parts[parts.length - 1];
+  return '';
+}
+
+/**
+ * Extract first name from a full name (first word)
  */
 export function getFirstName(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/);
+  const parts = nameParts(fullName);
   return parts[0] || fullName;
 }
 
 /**
- * Compare two names for sorting by last name, then first name
+ * Compare two names for sorting by primary last name, then second last name, then first name.
  */
 export function compareByLastName(a: string, b: string): number {
   const lastA = getLastName(a).toLowerCase();
   const lastB = getLastName(b).toLowerCase();
-  
+
   if (lastA !== lastB) {
     return lastA.localeCompare(lastB);
   }
-  
-  // If last names are equal, sort by first name
+
+  const secondA = getSecondLastName(a).toLowerCase();
+  const secondB = getSecondLastName(b).toLowerCase();
+  if (secondA !== secondB) {
+    return secondA.localeCompare(secondB);
+  }
+
   const firstA = getFirstName(a).toLowerCase();
   const firstB = getFirstName(b).toLowerCase();
   return firstA.localeCompare(firstB);
