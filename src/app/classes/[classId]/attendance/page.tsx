@@ -11,8 +11,11 @@ import {
   toggleVacation,
   deleteAttendance,
   findStudentByName,
-  createStudent,
+  addOrReactivateStudentForClass,
+  findReturningStudentInClass,
+  reactivateStudentForClass,
   dropStudent,
+  getStudents,
 } from '@/lib/storage';
 import { parseAttendanceFileFromInput, calculateAttendancePercentage } from '@/lib/parsers';
 import { calculateAttendanceAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
@@ -71,6 +74,7 @@ export default function AttendancePage() {
     added: number;
     errors: string[];
     newStudentsAdded: number;
+    studentsReactivated: number;
     studentsDropped: number;
     vacationCount?: number;
   } | null>(null);
@@ -81,7 +85,15 @@ export default function AttendancePage() {
   const [importStep, setImportStep] = useState<'select-month' | 'review-zero' | 'review-new'>('select-month');
   const [parsedRecords, setParsedRecords] = useState<AttendanceImportRow[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
-  const [newStudents, setNewStudents] = useState<{ name: string; selected: boolean; enrollDate: string }[]>([]);
+  const [newStudents, setNewStudents] = useState<
+    {
+      name: string;
+      selected: boolean;
+      enrollDate: string;
+      reactivateStudentId?: string;
+      returningLabel?: string;
+    }[]
+  >([]);
   const [missingStudents, setMissingStudents] = useState<{ student: Student; selected: boolean }[]>([]);
   const [zeroAttendanceStudents, setZeroAttendanceStudents] = useState<{ 
     name: string; 
@@ -248,12 +260,15 @@ export default function AttendancePage() {
       if (percentage === 0) {
         const normalizedName = record.studentName.trim().toLowerCase();
         const existingStudent = currentStudents.find(
-          s => s.name.trim().toLowerCase() === normalizedName
+          s => s.name.trim().toLowerCase() === normalizedName,
         );
-        if (isFirstImport && !existingStudent) continue;
+        const returning = !existingStudent
+          ? findReturningStudentInClass(record.studentName.trim(), classId)
+          : undefined;
+        if (isFirstImport && !existingStudent && !returning) continue;
         zeroAttendanceList.push({
           name: record.studentName.trim(),
-          studentId: existingStudent?.id,
+          studentId: existingStudent?.id ?? returning?.id,
         });
       }
     }
@@ -286,10 +301,17 @@ export default function AttendancePage() {
           (r) =>
             r.studentName.trim().toLowerCase() === name.trim().toLowerCase() && !isDroppedZero(r),
         );
+        const returning = findReturningStudentInClass(name, classId);
         return {
           name,
           selected: true,
           enrollDate: rec?.suggestedEnrollmentDate ?? today,
+          reactivateStudentId: returning?.id,
+          returningLabel: returning
+            ? returning.isDropped
+              ? 'Returning (was dropped) — keeps existing CASAS & scores'
+              : 'Returning (was promoted) — keeps existing data'
+            : undefined,
         };
       }),
     );
@@ -346,27 +368,44 @@ export default function AttendancePage() {
       zeroAttendanceActions.set(item.name.trim().toLowerCase(), item.action);
     }
     
-    // Add new students that were selected (but skip if they're marked for drop or ignore)
     const addedNewStudents: string[] = [];
-    for (const { name, selected, enrollDate } of newStudents) {
+    let studentsReactivated = 0;
+
+    for (const { name, selected, enrollDate, reactivateStudentId } of newStudents) {
       if (selected) {
         const normalizedName = name.trim().toLowerCase();
         const zeroAction = zeroAttendanceActions.get(normalizedName);
-        // Don't add if this student is marked for drop or ignore
         if (zeroAction === 'drop' || zeroAction === 'ignore') {
           continue;
         }
-        createStudent(name, classId, enrollDate);
+        if (reactivateStudentId) {
+          reactivateStudentForClass(reactivateStudentId, classId, enrollDate);
+          studentsReactivated++;
+        } else {
+          addOrReactivateStudentForClass(name, classId, enrollDate);
+        }
         addedNewStudents.push(name);
       }
     }
-    
-    // Also add NEW students with 0% attendance who are marked for 'record' or 'vacation'
-    // (these aren't in newStudents list since they have 0% attendance)
+
     for (const item of zeroAttendanceStudents) {
       if (!item.studentId && (item.action === 'record' || item.action === 'vacation')) {
-        createStudent(item.name, classId, item.enrollDate);
+        const { reactivated } = addOrReactivateStudentForClass(
+          item.name,
+          classId,
+          item.enrollDate,
+        );
+        if (reactivated) studentsReactivated++;
         addedNewStudents.push(item.name);
+      } else if (
+        item.studentId &&
+        (item.action === 'record' || item.action === 'vacation')
+      ) {
+        const existing = getStudents().find(s => s.id === item.studentId);
+        if (existing && (existing.isDropped || existing.isPromoted)) {
+          reactivateStudentForClass(item.studentId, classId, item.enrollDate);
+          studentsReactivated++;
+        }
       }
     }
     
@@ -399,8 +438,8 @@ export default function AttendancePage() {
         continue;
       }
       
-      const student = findStudentByName(record.studentName, classId);
-      if (student) {
+      const student = findStudentByName(record.studentName, classId, true);
+      if (student && !student.isPromoted) {
         const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
         
         // Mark as vacation if that action was selected
@@ -418,6 +457,7 @@ export default function AttendancePage() {
       added,
       errors: parseErrors,
       newStudentsAdded: addedNewStudents.length,
+      studentsReactivated,
       studentsDropped: droppedCount,
       vacationCount,
     });
@@ -522,10 +562,17 @@ export default function AttendancePage() {
               <p className="text-blue-800 mt-1">
                 Updated attendance for {importResult.added} students
               </p>
+              {importResult.studentsReactivated > 0 && (
+                <p className="text-teal-800 mt-1">
+                  Restored {importResult.studentsReactivated} returning student
+                  {importResult.studentsReactivated !== 1 ? 's' : ''} (kept existing CASAS &amp; history)
+                </p>
+              )}
               {importResult.newStudentsAdded > 0 && (
                 <p className="text-green-700 mt-1">
                   <UserPlusIcon className="w-4 h-4 inline mr-1" />
-                  Added {importResult.newStudentsAdded} new student{importResult.newStudentsAdded !== 1 ? 's' : ''} to roster
+                  Added {importResult.newStudentsAdded} student
+                  {importResult.newStudentsAdded !== 1 ? 's' : ''} to roster
                 </p>
               )}
               {importResult.studentsDropped > 0 && (
@@ -891,17 +938,18 @@ export default function AttendancePage() {
                       <div className="flex items-center gap-2 mb-3">
                         <UserPlusIcon className="w-5 h-5 text-green-600" />
                         <h3 className="font-semibold text-green-800">
-                          New Students Detected ({newStudents.length})
+                          Students to Add or Restore ({newStudents.length})
                         </h3>
                       </div>
                       <p className="text-sm text-green-700 mb-3">
-                        These students have attendance this month but are not on your roster. Check the ones you want to add.
-                        When the file has per-day columns, <strong>enrollment date</strong> defaults to the{' '}
-                        <strong>first day they have hours in the file</strong> (first class attended); you can change it.
+                        These students have attendance this month but are not on your active roster.{' '}
+                        <strong>Returning</strong> students were dropped or promoted before — checking them
+                        restores their existing file (CASAS, tests, etc.), not a duplicate.
                       </p>
                       <div className="space-y-2">
                         {newStudents.map((item, idx) => (
-                          <div key={idx} className="flex items-center gap-3">
+                          <div key={idx} className="flex flex-col gap-1 py-1 border-b border-green-100 last:border-0">
+                            <div className="flex items-center gap-3">
                             <input
                               type="checkbox"
                               checked={item.selected}
@@ -927,6 +975,10 @@ export default function AttendancePage() {
                                   className="text-xs border border-gray-300 rounded px-2 py-1"
                                 />
                               </div>
+                            )}
+                            </div>
+                            {item.returningLabel && (
+                              <p className="text-xs text-teal-700 ml-7">{item.returningLabel}</p>
                             )}
                           </div>
                         ))}

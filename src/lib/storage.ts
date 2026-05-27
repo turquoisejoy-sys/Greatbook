@@ -597,13 +597,64 @@ export function promoteStudent(studentId: string): void {
 }
 
 export function restoreStudent(studentId: string, newClassId: string): void {
-  updateStudent(studentId, {
+  reactivateStudentForClass(studentId, newClassId);
+}
+
+/**
+ * Put a dropped/promoted student back on the active roster (same record — keeps CASAS, attendance, etc.).
+ */
+export function reactivateStudentForClass(
+  studentId: string,
+  classId: string,
+  enrollmentDate?: string,
+): Student {
+  const updates: Partial<Student> = {
+    classId,
     isDropped: false,
     droppedDate: null,
     isPromoted: false,
     promotedDate: null,
-    classId: newClassId,
-  });
+  };
+  if (enrollmentDate) updates.enrollmentDate = enrollmentDate;
+  const updated = updateStudent(studentId, updates);
+  if (!updated) throw new Error('Student not found');
+  return updated;
+}
+
+/** Dropped or promoted student in this class with the same name (not on the active roster). */
+export function findReturningStudentInClass(name: string, classId: string): Student | undefined {
+  const trimmed = name.trim();
+  if (!trimmed) return undefined;
+  return getStudentsByClass(classId, true).find(
+    s => importNamesMatch(trimmed, s.name) && (s.isDropped || s.isPromoted),
+  );
+}
+
+/**
+ * Match active roster, else reactivate a returning student, else create new.
+ * Keeps one student file per person in a class.
+ */
+export function addOrReactivateStudentForClass(
+  name: string,
+  classId: string,
+  enrollmentDate?: string,
+): { student: Student; reactivated: boolean } {
+  const trimmed = name.trim();
+  const active = getStudentsByClass(classId).find(s => importNamesMatch(trimmed, s.name));
+  if (active) return { student: active, reactivated: false };
+
+  const returning = findReturningStudentInClass(trimmed, classId);
+  if (returning) {
+    return {
+      student: reactivateStudentForClass(returning.id, classId, enrollmentDate),
+      reactivated: true,
+    };
+  }
+
+  return {
+    student: createStudent(trimmed, classId, enrollmentDate),
+    reactivated: false,
+  };
 }
 
 /**
@@ -636,15 +687,15 @@ export function findStudentByName(name: string, classId: string, includeInactive
   );
 }
 
-/** Finds a student by name in the class (including dropped). If none, creates a new active student. */
+/** Finds a student by name in the class; reactivates returning students before creating duplicates. */
 export function findOrCreateStudent(
   name: string,
   classId: string,
   enrollmentDate?: string,
 ): Student {
-  const existing = findStudentByName(name, classId, true);
-  if (existing) return existing;
-  return createStudent(name.trim(), classId, enrollmentDate);
+  const active = findStudentByName(name, classId, false);
+  if (active) return active;
+  return addOrReactivateStudentForClass(name, classId, enrollmentDate).student;
 }
 
 // ============================================

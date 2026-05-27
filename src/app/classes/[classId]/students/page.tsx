@@ -7,6 +7,7 @@ import {
   getStudentsByClass,
   getClasses,
   createStudent,
+  addOrReactivateStudentForClass,
   updateStudent,
   dropStudent,
   promoteStudent,
@@ -54,6 +55,7 @@ export default function StudentsPage() {
   );
   const [importResult, setImportResult] = useState<{
     added: number;
+    reactivated: number;
     skipped: number;
     errors: string[];
   } | null>(null);
@@ -152,27 +154,32 @@ export default function StudentsPage() {
     });
     
     let added = 0;
+    let reactivated = 0;
     let skipped = 0;
 
-    // Extract unique student names and create students
     const seenNames = new Set<string>();
     for (const record of result.records) {
       const normalizedName = record.studentName.trim();
       if (seenNames.has(normalizedName.toLowerCase())) continue;
       seenNames.add(normalizedName.toLowerCase());
 
-      // Check if student already exists
-      const existing = findStudentByName(normalizedName, classId);
+      const existing = findStudentByName(normalizedName, classId, false);
       if (existing) {
         skipped++;
       } else {
-        createStudent(normalizedName, classId, importEnrollmentDate);
-        added++;
+        const { reactivated: wasReturning } = addOrReactivateStudentForClass(
+          normalizedName,
+          classId,
+          importEnrollmentDate,
+        );
+        if (wasReturning) reactivated++;
+        else added++;
       }
     }
 
     setImportResult({
       added,
+      reactivated,
       skipped,
       errors: result.errors,
     });
@@ -247,7 +254,9 @@ export default function StudentsPage() {
               <h3 className="font-semibold text-blue-900">Import Complete</h3>
               <p className="text-blue-800 mt-1">
                 Added {importResult.added} new student{importResult.added !== 1 ? 's' : ''}
-                {importResult.skipped > 0 && `, skipped ${importResult.skipped} (already exist)`}
+                {importResult.reactivated > 0 &&
+                  `, restored ${importResult.reactivated} returning student${importResult.reactivated !== 1 ? 's' : ''}`}
+                {importResult.skipped > 0 && `, skipped ${importResult.skipped} (already on roster)`}
               </p>
               {importResult.errors.length > 0 && (
                 <div className="mt-2 text-red-700">
