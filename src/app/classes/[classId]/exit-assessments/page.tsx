@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useReactToPrint } from 'react-to-print';
-import { DocumentArrowDownIcon, PrinterIcon } from '@heroicons/react/24/outline';
+import { DocumentArrowDownIcon, FlagIcon, PrinterIcon } from '@heroicons/react/24/outline';
 import { useApp } from '@/components/AppShell';
 import {
   getClasses,
@@ -28,6 +28,14 @@ import {
 } from '@/components/exit-assessment/ExitAssessmentPrintDocument';
 import { formatLongDate } from '@/lib/exit-assessment';
 import { downloadExitAssessmentsExcel } from '@/lib/exit-assessment-excel';
+import {
+  isStudentL4Flagged,
+  loadExitAssessmentChatFlags,
+  saveExitAssessmentChatFlags,
+  toggleStudentL4Flag,
+  type ExitAssessmentChatFlags,
+  type L4FlagField,
+} from '@/lib/exit-assessment-flags';
 import { useTeacherName } from '@/hooks/useTeacherName';
 import type { SpeakingTest, WritingTest } from '@/types';
 
@@ -125,11 +133,37 @@ function PassCell({
   );
 }
 
-function StatusCell({ pass }: { pass: boolean }) {
-  const color = pass ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200';
+function L4StatusCell({
+  pass,
+  flagged,
+  onToggleFlag,
+}: {
+  pass: boolean;
+  flagged: boolean;
+  onToggleFlag: () => void;
+}) {
+  const passFailClass = pass
+    ? 'bg-green-50 text-green-800 border-green-200'
+    : 'bg-red-50 text-red-800 border-red-200';
+  const flaggedClass = flagged
+    ? 'bg-yellow-50 text-yellow-900 border-yellow-300 ring-2 ring-yellow-400/80'
+    : passFailClass;
+
   return (
-    <div className={`rounded-md border px-2 py-2 text-center ${color}`}>
-      <div className="text-sm font-semibold">{pass ? 'P' : 'NP'}</div>
+    <div className={`relative rounded-md border px-2 py-2 text-center ${flaggedClass}`}>
+      <button
+        type="button"
+        onClick={onToggleFlag}
+        title={flagged ? 'Remove follow-up flag' : 'Flag for follow-up chat'}
+        aria-pressed={flagged}
+        className="absolute top-1 right-1 rounded p-0.5 hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500"
+      >
+        <FlagIcon
+          className={`h-4 w-4 ${flagged ? 'text-amber-600 fill-amber-400' : 'text-gray-400'}`}
+          aria-hidden
+        />
+      </button>
+      <div className="text-sm font-semibold pr-4">{pass ? 'P' : 'NP'}</div>
     </div>
   );
 }
@@ -145,6 +179,11 @@ export default function ExitAssessmentsPage() {
   const [showFinalColumns, setShowFinalColumns] = useState(true);
   const printRef = useRef<HTMLDivElement>(null);
   const columnPrefsLoadedRef = useRef(false);
+  const chatFlagsLoadedRef = useRef(false);
+  const [chatFlags, setChatFlags] = useState<ExitAssessmentChatFlags>({
+    midtermL4: [],
+    finalL4: [],
+  });
 
   useEffect(() => {
     if (!mounted || !classId) return;
@@ -161,6 +200,24 @@ export default function ExitAssessmentsPage() {
       showFinal: showFinalColumns,
     });
   }, [mounted, classId, showMidtermColumns, showFinalColumns]);
+
+  useEffect(() => {
+    if (!mounted || !classId) return;
+    setChatFlags(loadExitAssessmentChatFlags(classId));
+    chatFlagsLoadedRef.current = true;
+  }, [mounted, classId]);
+
+  useEffect(() => {
+    if (!mounted || !classId || !chatFlagsLoadedRef.current) return;
+    saveExitAssessmentChatFlags(classId, chatFlags);
+  }, [mounted, classId, chatFlags]);
+
+  const toggleL4Flag = (studentId: string, field: L4FlagField) => {
+    setChatFlags(prev => toggleStudentL4Flag(prev, studentId, field));
+  };
+
+  const flaggedCount =
+    new Set([...chatFlags.midtermL4, ...chatFlags.finalL4]).size;
 
   const currentClass = useMemo(() => {
     if (!mounted) return null;
@@ -273,7 +330,12 @@ export default function ExitAssessmentsPage() {
 
   const handleExportExcel = () => {
     if (!currentClass) return;
-    downloadExitAssessmentsExcel(currentClass.name, rows, {
+    const exportRows = rows.map(row => ({
+      ...row,
+      midtermL4Flagged: isStudentL4Flagged(chatFlags, row.studentId, 'midtermL4'),
+      finalL4Flagged: isStudentL4Flagged(chatFlags, row.studentId, 'finalL4'),
+    }));
+    downloadExitAssessmentsExcel(currentClass.name, exportRows, {
       showMidtermColumns,
       showFinalColumns,
     });
@@ -384,6 +446,19 @@ export default function ExitAssessmentsPage() {
         </div>
       </div>
 
+      <div className="card p-4 space-y-2">
+        <h2 className="text-lg font-semibold text-[var(--cace-navy)]">Results</h2>
+        <p className="text-xs text-gray-600">
+          Click the flag on <strong>Midterm L4 P/NP</strong> or <strong>Final L4 P/NP</strong> to mark students you want to follow up with.
+          Flagged cells export in yellow. Saved for this class on this device.
+        </p>
+        {flaggedCount > 0 && (
+          <p className="text-xs font-medium text-amber-800">
+            {flaggedCount} student{flaggedCount === 1 ? '' : 's'} flagged for follow-up
+          </p>
+        )}
+      </div>
+
       <div className="card p-0 overflow-x-auto">
         <table className="min-w-[600px] w-full text-sm">
           <thead>
@@ -421,14 +496,26 @@ export default function ExitAssessmentsPage() {
                   <>
                     <td className="p-2"><PassCell score={row.speakingMidtermScore} pass={row.speakingMidtermPass} /></td>
                     <td className="p-2"><PassCell score={row.writingMidtermScore} pass={row.writingMidtermPass} /></td>
-                    <td className="p-2"><StatusCell pass={row.midtermPass} /></td>
+                    <td className="p-2">
+                      <L4StatusCell
+                        pass={row.midtermPass}
+                        flagged={isStudentL4Flagged(chatFlags, row.studentId, 'midtermL4')}
+                        onToggleFlag={() => toggleL4Flag(row.studentId, 'midtermL4')}
+                      />
+                    </td>
                   </>
                 )}
                 {showFinalColumns && (
                   <>
                     <td className="p-2"><PassCell score={row.speakingFinalScore} pass={row.speakingFinalPass} /></td>
                     <td className="p-2"><PassCell score={row.writingFinalScore} pass={row.writingFinalPass} /></td>
-                    <td className="p-2"><StatusCell pass={row.finalPass} /></td>
+                    <td className="p-2">
+                      <L4StatusCell
+                        pass={row.finalPass}
+                        flagged={isStudentL4Flagged(chatFlags, row.studentId, 'finalL4')}
+                        onToggleFlag={() => toggleL4Flag(row.studentId, 'finalL4')}
+                      />
+                    </td>
                   </>
                 )}
               </tr>

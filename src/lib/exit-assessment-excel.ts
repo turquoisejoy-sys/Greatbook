@@ -13,6 +13,15 @@ const FAIL_STYLE = {
   alignment: { horizontal: 'center', vertical: 'center' },
 } as const;
 
+/** Yellow highlight for L4 P/NP flagged for follow-up (yellow-100 / yellow-800). */
+const FLAG_STYLE = {
+  fill: { patternType: 'solid', fgColor: { rgb: 'FEF9C3' } },
+  font: { color: { rgb: '854D0E' }, bold: true },
+  alignment: { horizontal: 'center', vertical: 'center' },
+} as const;
+
+type StyledCell = { pass: boolean; flagged?: boolean };
+
 export type ExitAssessmentExportRow = {
   studentName: string;
   readingFormScore: string;
@@ -24,11 +33,13 @@ export type ExitAssessmentExportRow = {
   writingMidtermScore: number | null;
   writingMidtermPass: boolean;
   midtermPass: boolean;
+  midtermL4Flagged?: boolean;
   speakingFinalScore: number | null;
   speakingFinalPass: boolean;
   writingFinalScore: number | null;
   writingFinalPass: boolean;
   finalPass: boolean;
+  finalL4Flagged?: boolean;
 };
 
 function scoreWithPass(
@@ -49,8 +60,9 @@ function passOnly(pass: boolean): string {
   return pass ? 'P' : 'NP';
 }
 
-function styleForPass(pass: boolean) {
-  return pass ? PASS_STYLE : FAIL_STYLE;
+function styleForCell(cell: StyledCell) {
+  if (cell.flagged) return FLAG_STYLE;
+  return cell.pass ? PASS_STYLE : FAIL_STYLE;
 }
 
 /**
@@ -69,16 +81,16 @@ export function downloadExitAssessmentsExcel(
     header.push('Speaking Final', 'Writing Final', 'Final L4 P/NP');
   }
 
-  /** Per data row: pass/fail for each column (null = student name, no fill). */
-  const rowPasses: Array<Array<boolean | null>> = [];
+  /** Per data row: styling per column (null = student name, no fill). */
+  const rowStyles: Array<Array<StyledCell | null>> = [];
 
   const body = rows.map(row => {
-    const passes: Array<boolean | null> = [null];
+    const styles: Array<StyledCell | null> = [null];
     const line: string[] = [row.studentName];
 
-    const push = (value: string, pass: boolean) => {
+    const push = (value: string, pass: boolean, flagged = false) => {
       line.push(value);
-      passes.push(pass);
+      styles.push({ pass, flagged });
     };
 
     push(scoreWithPass(null, row.readingPass, row.readingFormScore), row.readingPass);
@@ -87,29 +99,29 @@ export function downloadExitAssessmentsExcel(
     if (options.showMidtermColumns) {
       push(scoreWithPass(row.speakingMidtermScore, row.speakingMidtermPass), row.speakingMidtermPass);
       push(scoreWithPass(row.writingMidtermScore, row.writingMidtermPass), row.writingMidtermPass);
-      push(passOnly(row.midtermPass), row.midtermPass);
+      push(passOnly(row.midtermPass), row.midtermPass, !!row.midtermL4Flagged);
     }
     if (options.showFinalColumns) {
       push(scoreWithPass(row.speakingFinalScore, row.speakingFinalPass), row.speakingFinalPass);
       push(scoreWithPass(row.writingFinalScore, row.writingFinalPass), row.writingFinalPass);
-      push(passOnly(row.finalPass), row.finalPass);
+      push(passOnly(row.finalPass), row.finalPass, !!row.finalL4Flagged);
     }
 
-    rowPasses.push(passes);
+    rowStyles.push(styles);
     return line;
   });
 
   const data = [header, ...body];
   const ws = XLSX.utils.aoa_to_sheet(data);
 
-  rowPasses.forEach((passes, bodyIdx) => {
+  rowStyles.forEach((styles, bodyIdx) => {
     const r = bodyIdx + 1;
-    passes.forEach((pass, c) => {
-      if (pass === null) return;
+    styles.forEach((styled, c) => {
+      if (styled === null) return;
       const addr = XLSX.utils.encode_cell({ r, c });
       const cell = ws[addr];
       if (!cell) return;
-      cell.s = styleForPass(pass);
+      cell.s = styleForCell(styled);
     });
   });
 
