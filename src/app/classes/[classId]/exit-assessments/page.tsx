@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useReactToPrint } from 'react-to-print';
-import * as XLSX from 'xlsx';
 import { DocumentArrowDownIcon, PrinterIcon } from '@heroicons/react/24/outline';
 import { useApp } from '@/components/AppShell';
 import {
@@ -28,6 +27,7 @@ import {
   type ExitStudentRow,
 } from '@/components/exit-assessment/ExitAssessmentPrintDocument';
 import { formatLongDate } from '@/lib/exit-assessment';
+import { downloadExitAssessmentsExcel } from '@/lib/exit-assessment-excel';
 import { useTeacherName } from '@/hooks/useTeacherName';
 import type { SpeakingTest, WritingTest } from '@/types';
 
@@ -273,66 +273,10 @@ export default function ExitAssessmentsPage() {
 
   const handleExportExcel = () => {
     if (!currentClass) return;
-    const header = [
-      'Student',
-      'CASAS Reading (Highest)',
-      'CASAS Reading P/NP',
-      'CASAS Listening (Highest)',
-      'CASAS Listening P/NP',
-    ];
-    if (showMidtermColumns) {
-      header.push(
-        'Speaking Midterm',
-        'Speaking Midterm P/NP',
-        'Writing Midterm',
-        'Writing Midterm P/NP',
-        'Midterm L4 P/NP',
-      );
-    }
-    if (showFinalColumns) {
-      header.push(
-        'Speaking Final',
-        'Speaking Final P/NP',
-        'Writing Final',
-        'Writing Final P/NP',
-        'Final L4 P/NP',
-      );
-    }
-    const data = [
-      header,
-      ...rows.map(row => {
-        const line: Array<string | number> = [
-          row.studentName,
-          row.readingFormScore,
-          row.readingPass ? 'P' : 'NP',
-          row.listeningFormScore,
-          row.listeningPass ? 'P' : 'NP',
-        ];
-        if (showMidtermColumns) {
-          line.push(
-            row.speakingMidtermScore ?? '',
-            row.speakingMidtermPass ? 'P' : 'NP',
-            row.writingMidtermScore ?? '',
-            row.writingMidtermPass ? 'P' : 'NP',
-            row.midtermPass ? 'P' : 'NP',
-          );
-        }
-        if (showFinalColumns) {
-          line.push(
-            row.speakingFinalScore ?? '',
-            row.speakingFinalPass ? 'P' : 'NP',
-            row.writingFinalScore ?? '',
-            row.writingFinalPass ? 'P' : 'NP',
-            row.finalPass ? 'P' : 'NP',
-          );
-        }
-        return line;
-      }),
-    ];
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    XLSX.utils.book_append_sheet(wb, ws, 'Exit Assessments');
-    XLSX.writeFile(wb, `exit-assessments-${currentClass.name.replace(/\s+/g, '-')}.xlsx`);
+    downloadExitAssessmentsExcel(currentClass.name, rows, {
+      showMidtermColumns,
+      showFinalColumns,
+    });
   };
 
   const handlePrint = useReactToPrint({
