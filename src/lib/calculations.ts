@@ -427,10 +427,35 @@ export function compareByLastName(a: string, b: string): number {
 }
 
 /**
+ * Sort students by last name, then first name (uses firstName/lastName when set).
+ */
+export function compareStudentsByLastName(
+  a: { name: string; firstName?: string; lastName?: string },
+  b: { name: string; firstName?: string; lastName?: string },
+): number {
+  const lastA = (a.lastName?.trim() || '').toLowerCase();
+  const lastB = (b.lastName?.trim() || '').toLowerCase();
+
+  if (lastA && lastB) {
+    const lastCmp = lastA.localeCompare(lastB);
+    if (lastCmp !== 0) return lastCmp;
+    const firstCmp = (a.firstName?.trim() || '')
+      .toLowerCase()
+      .localeCompare((b.firstName?.trim() || '').toLowerCase());
+    if (firstCmp !== 0) return firstCmp;
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  }
+
+  return compareByLastName(a.name, b.name);
+}
+
+/**
  * Sort students by last name, then first name
  */
-export function sortStudentsByLastName<T extends { name: string }>(students: T[]): T[] {
-  return [...students].sort((a, b) => compareByLastName(a.name, b.name));
+export function sortStudentsByLastName<T extends { name: string; firstName?: string; lastName?: string }>(
+  students: T[],
+): T[] {
+  return [...students].sort((a, b) => compareStudentsByLastName(a, b));
 }
 
 /**

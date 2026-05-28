@@ -59,6 +59,10 @@ export interface ColorThresholds {
 export interface Student {
   id: string;
   name: string;
+  /** Given name(s) from attendance / roster (may include middle names). */
+  firstName: string;
+  /** Family name(s) from attendance / roster. */
+  lastName: string;
   classId: string;
   enrollmentDate: string; // ISO date string
   notes: string;          // Personal notes (not for report cards)
@@ -281,6 +285,8 @@ export interface CASASImportRow {
 
 export interface AttendanceImportRow {
   studentName: string;
+  firstName?: string;
+  lastName?: string;
   totalHours: number;
   scheduledHours: number;
   /** Optional status from file (e.g. "DROPPED") - used to auto-ignore dropped + zero hours */

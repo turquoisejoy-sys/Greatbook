@@ -374,36 +374,42 @@ export function parseAttendanceFile(
       
       // Get student name
       let studentName: string;
+      let parsedFirstName = '';
+      let parsedLastName = '';
       if (nameCol !== -1) {
         studentName = String(row[nameCol] || '').trim();
         // Handle "Last, First" format
         if (studentName.includes(',')) {
           const parts = studentName.split(',').map(p => p.trim());
           if (parts.length >= 2) {
-            studentName = `${parts[1]} ${parts[0]}`; // Convert to "First Last"
+            parsedLastName = parts[0];
+            parsedFirstName = parts.slice(1).join(' ');
+            studentName = `${parsedFirstName} ${parsedLastName}`;
           }
         }
       } else {
-        const firstName = firstNameCol !== -1 ? String(row[firstNameCol] || '').trim() : '';
-        const lastName = lastNameCol !== -1 ? String(row[lastNameCol] || '').trim() : '';
-        // Combine as "First Last" or just use what we have
-        if (firstName && lastName) {
-          studentName = `${firstName} ${lastName}`;
-        } else if (lastName && !firstName) {
+        parsedFirstName = firstNameCol !== -1 ? String(row[firstNameCol] || '').trim() : '';
+        parsedLastName = lastNameCol !== -1 ? String(row[lastNameCol] || '').trim() : '';
+        // Combine as "First Last" (attendance exports: Last Name col + First Name col)
+        if (parsedFirstName && parsedLastName) {
+          studentName = `${parsedFirstName} ${parsedLastName}`;
+        } else if (parsedLastName && !parsedFirstName) {
           // Only have last name - check if it contains comma (Last, First format)
-          if (lastName.includes(',')) {
-            const parts = lastName.split(',').map(p => p.trim());
+          if (parsedLastName.includes(',')) {
+            const parts = parsedLastName.split(',').map(p => p.trim());
             if (parts.length >= 2) {
-              studentName = `${parts[1]} ${parts[0]}`; // Convert to "First Last"
+              parsedFirstName = parts.slice(1).join(' ');
+              parsedLastName = parts[0];
+              studentName = `${parsedFirstName} ${parsedLastName}`;
             } else {
-              studentName = lastName;
+              studentName = parsedLastName;
             }
           } else {
-            studentName = lastName;
+            studentName = parsedLastName;
             // Don't warn - this is expected if file only has last names
           }
         } else {
-          studentName = firstName || lastName || '';
+          studentName = parsedFirstName || parsedLastName || '';
         }
       }
       
@@ -466,6 +472,8 @@ export function parseAttendanceFile(
 
       const importRow: AttendanceImportRow = {
         studentName,
+        ...(parsedFirstName ? { firstName: parsedFirstName } : {}),
+        ...(parsedLastName ? { lastName: parsedLastName } : {}),
         totalHours,
         scheduledHours,
         ...(status ? { status } : {}),

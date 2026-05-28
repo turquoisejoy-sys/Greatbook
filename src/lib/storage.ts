@@ -18,6 +18,13 @@ import {
   StudentNote,
 } from '@/types';
 import { importNamesMatch, normalizeNameForMatching } from './calculations';
+import {
+  buildStudentDisplayName,
+  importNamesMatchStudent,
+  matchAttendanceRecordToStudent,
+  studentNameFieldsFromRecord,
+} from './student-names';
+import type { AttendanceImportRow } from '@/types';
 import { getTeacherName, setTeacherName } from './teacher-settings';
 import { isSpeakingWritingSyncNote } from './speaking-writing-cloud-bridge';
 import {
@@ -516,6 +523,14 @@ export function getStudents(): Student[] {
       (s as Student).casasListeningLevelComplete = false;
       needsSave = true;
     }
+    if (s.firstName === undefined) {
+      (s as Student).firstName = '';
+      needsSave = true;
+    }
+    if (s.lastName === undefined) {
+      (s as Student).lastName = '';
+      needsSave = true;
+    }
   }
   if (needsSave) {
     saveToStorage(STORAGE_KEYS.students, students);
@@ -545,10 +560,30 @@ export function getPromotedStudents(): Student[] {
   return getStudents().filter(s => s.isPromoted);
 }
 
-export function createStudent(name: string, classId: string, enrollmentDate?: string): Student {
+export type CreateStudentInput =
+  | string
+  | { firstName: string; lastName: string; name?: string };
+
+export function createStudent(
+  input: CreateStudentInput,
+  classId: string,
+  enrollmentDate?: string,
+): Student {
+  let firstName = '';
+  let lastName = '';
+  let name: string;
+  if (typeof input === 'string') {
+    name = input.trim();
+  } else {
+    firstName = input.firstName.trim();
+    lastName = input.lastName.trim();
+    name = input.name?.trim() || buildStudentDisplayName(firstName, lastName);
+  }
   const newStudent: Student = {
     id: generateId(),
     name,
+    firstName,
+    lastName,
     classId,
     enrollmentDate: enrollmentDate || new Date().toISOString().split('T')[0],
     notes: '',
@@ -626,7 +661,7 @@ export function findReturningStudentInClass(name: string, classId: string): Stud
   const trimmed = name.trim();
   if (!trimmed) return undefined;
   return getStudentsByClass(classId, true).find(
-    s => importNamesMatch(trimmed, s.name) && (s.isDropped || s.isPromoted),
+    s => importNamesMatchStudent(trimmed, s) && (s.isDropped || s.isPromoted),
   );
 }
 
@@ -635,26 +670,82 @@ export function findReturningStudentInClass(name: string, classId: string): Stud
  * Keeps one student file per person in a class.
  */
 export function addOrReactivateStudentForClass(
-  name: string,
+  input: CreateStudentInput,
   classId: string,
   enrollmentDate?: string,
 ): { student: Student; reactivated: boolean } {
-  const trimmed = name.trim();
-  const active = getStudentsByClass(classId).find(s => importNamesMatch(trimmed, s.name));
-  if (active) return { student: active, reactivated: false };
+  const trimmed =
+    typeof input === 'string' ? input.trim() : buildStudentDisplayName(input.firstName, input.lastName);
+  const active = getStudentsByClass(classId).find(s => importNamesMatchStudent(trimmed, s));
+  if (active) {
+    applyStudentNameFromInput(active.id, input);
+    return { student: getStudents().find(s => s.id === active.id) ?? active, reactivated: false };
+  }
 
   const returning = findReturningStudentInClass(trimmed, classId);
   if (returning) {
+    const reactivated = reactivateStudentForClass(returning.id, classId, enrollmentDate);
+    applyStudentNameFromInput(reactivated.id, input);
     return {
-      student: reactivateStudentForClass(returning.id, classId, enrollmentDate),
+      student: getStudents().find(s => s.id === reactivated.id) ?? reactivated,
       reactivated: true,
     };
   }
 
   return {
-    student: createStudent(trimmed, classId, enrollmentDate),
+    student: createStudent(input, classId, enrollmentDate),
     reactivated: false,
   };
+}
+
+function applyStudentNameFromInput(studentId: string, input: CreateStudentInput): void {
+  if (typeof input === 'string') return;
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  if (!firstName || !lastName) return;
+  updateStudent(studentId, {
+    firstName,
+    lastName,
+    name: buildStudentDisplayName(firstName, lastName),
+  });
+}
+
+/** Update roster names from attendance rows (first/last columns). */
+export function repairStudentNamesFromAttendanceRecords(
+  classId: string,
+  records: AttendanceImportRow[],
+): { updated: string[]; skipped: number } {
+  const updated: string[] = [];
+  const roster = getStudentsByClass(classId, true);
+  let skipped = 0;
+
+  for (const record of records) {
+    const fields = studentNameFieldsFromRecord(record);
+    if (!fields) {
+      skipped++;
+      continue;
+    }
+    const student = roster.find(s => matchAttendanceRecordToStudent(record, s));
+    if (!student) {
+      skipped++;
+      continue;
+    }
+    if (
+      student.firstName === fields.firstName &&
+      student.lastName === fields.lastName &&
+      student.name === fields.name
+    ) {
+      continue;
+    }
+    updateStudent(student.id, {
+      firstName: fields.firstName,
+      lastName: fields.lastName,
+      name: fields.name,
+    });
+    updated.push(fields.name);
+  }
+
+  return { updated, skipped };
 }
 
 /**
@@ -683,7 +774,7 @@ export function findStudentByName(name: string, classId: string, includeInactive
   const trimmed = name.trim();
   if (!trimmed) return undefined;
   return getStudentsByClass(classId, includeInactive).find(s =>
-    importNamesMatch(trimmed, s.name),
+    importNamesMatchStudent(trimmed, s),
   );
 }
 

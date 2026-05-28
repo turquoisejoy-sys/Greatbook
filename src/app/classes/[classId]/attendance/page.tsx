@@ -16,9 +16,12 @@ import {
   reactivateStudentForClass,
   dropStudent,
   getStudents,
+  repairStudentNamesFromAttendanceRecords,
+  updateStudent,
 } from '@/lib/storage';
 import { parseAttendanceFileFromInput, calculateAttendancePercentage } from '@/lib/parsers';
-import { calculateAttendanceAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
+import { calculateAttendanceAverage, getColorLevel, compareStudentsByLastName } from '@/lib/calculations';
+import { buildStudentDisplayName, matchAttendanceRecordToStudent } from '@/lib/student-names';
 import { Student, Class, Attendance, AttendanceImportRow } from '@/types';
 import {
   ArrowUpTrayIcon,
@@ -76,6 +79,7 @@ export default function AttendancePage() {
     newStudentsAdded: number;
     studentsReactivated: number;
     studentsDropped: number;
+    namesRepaired?: number;
     vacationCount?: number;
   } | null>(null);
   const [editingCell, setEditingCell] = useState<{ studentId: string; month: string } | null>(null);
@@ -88,6 +92,8 @@ export default function AttendancePage() {
   const [newStudents, setNewStudents] = useState<
     {
       name: string;
+      firstName?: string;
+      lastName?: string;
       selected: boolean;
       enrollDate: string;
       reactivateStudentId?: string;
@@ -136,7 +142,7 @@ export default function AttendancePage() {
       return { student, monthlyData, average };
     });
     
-    data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
+    data.sort((a, b) => compareStudentsByLastName(a.student, b.student));
     setStudentAttendance(data);
   };
 
@@ -199,12 +205,12 @@ export default function AttendancePage() {
       return pct === 0 && dropped;
     };
 
-    // Get current roster
-    const currentStudents = getStudentsByClass(classId);
-    const currentNames = new Set(currentStudents.map(s => s.name.trim().toLowerCase()));
+    const currentStudents = getStudentsByClass(classId, true);
+    const isRecordOnRoster = (record: AttendanceImportRow) =>
+      currentStudents.some(s => matchAttendanceRecordToStudent(record, s));
     
-    // Check if this is a first-time import (empty roster)
-    const isFirstImport = currentStudents.length === 0;
+    // Check if this is a first-time import (empty active roster)
+    const isFirstImport = getStudentsByClass(classId).length === 0;
     
     // Pre-calculate which students have zero attendance (excluding auto-ignored dropped+zero)
     const zeroAttendanceNames = new Set<string>();
@@ -216,20 +222,15 @@ export default function AttendancePage() {
       }
     }
     
-    // Get names from import file (excluding auto-ignored so they don't affect "missing")
-    const importNames = new Set(
-      result.records.filter(r => !isDroppedZero(r)).map(r => r.studentName.trim().toLowerCase())
-    );
-    
     // Find new students (in file but not in roster) WHO HAVE ACTUAL ATTENDANCE
     // New students with 0% attendance will be shown in the zero attendance step instead
     // Auto-ignored (DROPPED + zero) are never added
-    const newStudentNames: string[] = [];
+    const newStudentNames: AttendanceImportRow[] = [];
     let skippedZeroAttendance = 0;
     for (const record of result.records) {
       if (isDroppedZero(record)) continue;
       const normalizedName = record.studentName.trim().toLowerCase();
-      if (!currentNames.has(normalizedName)) {
+      if (!isRecordOnRoster(record)) {
         // On first import, silently skip students with 0% attendance
         if (isFirstImport && zeroAttendanceNames.has(normalizedName)) {
           skippedZeroAttendance++;
@@ -239,15 +240,17 @@ export default function AttendancePage() {
         if (zeroAttendanceNames.has(normalizedName)) {
           continue;
         }
-        newStudentNames.push(record.studentName.trim());
+        newStudentNames.push(record);
       }
     }
     
     // Find missing students (in roster but not in file)
     const missingStudentsList: Student[] = [];
-    for (const student of currentStudents) {
-      const normalizedName = student.name.trim().toLowerCase();
-      if (!importNames.has(normalizedName)) {
+    for (const student of getStudentsByClass(classId)) {
+      const inFile = result.records.some(
+        r => !isDroppedZero(r) && matchAttendanceRecordToStudent(r, student),
+      );
+      if (!inFile) {
         missingStudentsList.push(student);
       }
     }
@@ -259,8 +262,8 @@ export default function AttendancePage() {
       const percentage = calculateAttendancePercentage(record.totalHours, record.scheduledHours);
       if (percentage === 0) {
         const normalizedName = record.studentName.trim().toLowerCase();
-        const existingStudent = currentStudents.find(
-          s => s.name.trim().toLowerCase() === normalizedName,
+        const existingStudent = currentStudents.find(s =>
+          matchAttendanceRecordToStudent(record, s),
         );
         const returning = !existingStudent
           ? findReturningStudentInClass(record.studentName.trim(), classId)
@@ -279,7 +282,7 @@ export default function AttendancePage() {
       .filter(r => {
         if (!isFirstImport) return true;
         const normalizedName = r.studentName.trim().toLowerCase();
-        const isNew = !currentNames.has(normalizedName);
+        const isNew = !isRecordOnRoster(r);
         const hasZero = zeroAttendanceNames.has(normalizedName);
         return !(isNew && hasZero);
       });
@@ -296,16 +299,15 @@ export default function AttendancePage() {
     // Store ALL new student names (we'll filter out ignored ones later)
     const today = new Date().toISOString().split('T')[0];
     setNewStudents(
-      newStudentNames.map((name) => {
-        const rec = result.records.find(
-          (r) =>
-            r.studentName.trim().toLowerCase() === name.trim().toLowerCase() && !isDroppedZero(r),
-        );
+      newStudentNames.map((record) => {
+        const name = record.studentName.trim();
         const returning = findReturningStudentInClass(name, classId);
         return {
           name,
+          firstName: record.firstName,
+          lastName: record.lastName,
           selected: true,
-          enrollDate: rec?.suggestedEnrollmentDate ?? today,
+          enrollDate: record.suggestedEnrollmentDate ?? today,
           reactivateStudentId: returning?.id,
           returningLabel: returning
             ? returning.isDropped
@@ -370,31 +372,53 @@ export default function AttendancePage() {
     
     const addedNewStudents: string[] = [];
     let studentsReactivated = 0;
+    let namesRepaired = 0;
 
-    for (const { name, selected, enrollDate, reactivateStudentId } of newStudents) {
-      if (selected) {
-        const normalizedName = name.trim().toLowerCase();
+    const studentInput = (item: {
+      name: string;
+      firstName?: string;
+      lastName?: string;
+    }) => {
+      if (item.firstName?.trim() && item.lastName?.trim()) {
+        return { firstName: item.firstName.trim(), lastName: item.lastName.trim() };
+      }
+      return item.name;
+    };
+
+    for (const item of newStudents) {
+      if (item.selected) {
+        const normalizedName = item.name.trim().toLowerCase();
         const zeroAction = zeroAttendanceActions.get(normalizedName);
         if (zeroAction === 'drop' || zeroAction === 'ignore') {
           continue;
         }
-        if (reactivateStudentId) {
-          reactivateStudentForClass(reactivateStudentId, classId, enrollDate);
+        if (item.reactivateStudentId) {
+          reactivateStudentForClass(item.reactivateStudentId, classId, item.enrollDate);
           studentsReactivated++;
+          if (item.firstName?.trim() && item.lastName?.trim()) {
+            updateStudent(item.reactivateStudentId, {
+              firstName: item.firstName.trim(),
+              lastName: item.lastName.trim(),
+              name: buildStudentDisplayName(item.firstName, item.lastName),
+            });
+          }
         } else {
-          addOrReactivateStudentForClass(name, classId, enrollDate);
+          addOrReactivateStudentForClass(studentInput(item), classId, item.enrollDate);
         }
-        addedNewStudents.push(name);
+        addedNewStudents.push(item.name);
       }
     }
 
     for (const item of zeroAttendanceStudents) {
       if (!item.studentId && (item.action === 'record' || item.action === 'vacation')) {
-        const { reactivated } = addOrReactivateStudentForClass(
-          item.name,
-          classId,
-          item.enrollDate,
+        const rec = parsedRecords.find(
+          r => r.studentName.trim().toLowerCase() === item.name.trim().toLowerCase(),
         );
+        const input =
+          rec?.firstName?.trim() && rec?.lastName?.trim()
+            ? { firstName: rec.firstName.trim(), lastName: rec.lastName.trim() }
+            : item.name;
+        const { reactivated } = addOrReactivateStudentForClass(input, classId, item.enrollDate);
         if (reactivated) studentsReactivated++;
         addedNewStudents.push(item.name);
       } else if (
@@ -426,6 +450,10 @@ export default function AttendancePage() {
       }
     }
     
+    // Sync first/last names from file for all matched roster students
+    const nameRepair = repairStudentNamesFromAttendanceRecords(classId, parsedRecords);
+    namesRepaired = nameRepair.updated.length;
+
     // Now import attendance for all students in the file
     let added = 0;
     let vacationCount = 0;
@@ -459,6 +487,7 @@ export default function AttendancePage() {
       newStudentsAdded: addedNewStudents.length,
       studentsReactivated,
       studentsDropped: droppedCount,
+      namesRepaired,
       vacationCount,
     });
 
@@ -566,6 +595,12 @@ export default function AttendancePage() {
                 <p className="text-teal-800 mt-1">
                   Restored {importResult.studentsReactivated} returning student
                   {importResult.studentsReactivated !== 1 ? 's' : ''} (kept existing CASAS &amp; history)
+                </p>
+              )}
+              {importResult.namesRepaired != null && importResult.namesRepaired > 0 && (
+                <p className="text-sm text-gray-700 mt-1">
+                  Corrected first/last names for {importResult.namesRepaired} student
+                  {importResult.namesRepaired !== 1 ? 's' : ''} from the attendance file
                 </p>
               )}
               {importResult.newStudentsAdded > 0 && (

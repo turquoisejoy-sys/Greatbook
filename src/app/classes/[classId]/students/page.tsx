@@ -12,10 +12,11 @@ import {
   dropStudent,
   promoteStudent,
   transferStudent,
-  findStudentByName,
+  repairStudentNamesFromAttendanceRecords,
 } from '@/lib/storage';
 import { parseAttendanceFileFromInput } from '@/lib/parsers';
 import { sortStudentsByLastName } from '@/lib/calculations';
+import { buildStudentDisplayName, matchAttendanceRecordToStudent } from '@/lib/student-names';
 import { Student, Class } from '@/types';
 import {
   PlusIcon,
@@ -40,11 +41,13 @@ export default function StudentsPage() {
   const [showEditStudent, setShowEditStudent] = useState<Student | null>(null);
   const [showTransferStudent, setShowTransferStudent] = useState<Student | null>(null);
   const [showExitStudent, setShowExitStudent] = useState<Student | null>(null);
-  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentFirstName, setNewStudentFirstName] = useState('');
+  const [newStudentLastName, setNewStudentLastName] = useState('');
   const [newStudentEnrollment, setNewStudentEnrollment] = useState(
     new Date().toISOString().split('T')[0]
   );
-  const [editName, setEditName] = useState('');
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
   const [editEnrollment, setEditEnrollment] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -57,6 +60,7 @@ export default function StudentsPage() {
     added: number;
     reactivated: number;
     skipped: number;
+    namesRepaired: number;
     errors: string[];
   } | null>(null);
 
@@ -78,18 +82,26 @@ export default function StudentsPage() {
   };
 
   const handleAddStudent = () => {
-    if (!newStudentName.trim()) return;
-    createStudent(newStudentName.trim(), classId, newStudentEnrollment);
+    const firstName = newStudentFirstName.trim();
+    const lastName = newStudentLastName.trim();
+    if (!firstName || !lastName) return;
+    createStudent({ firstName, lastName }, classId, newStudentEnrollment);
     refreshStudents();
     setShowAddStudent(false);
-    setNewStudentName('');
+    setNewStudentFirstName('');
+    setNewStudentLastName('');
     setNewStudentEnrollment(new Date().toISOString().split('T')[0]);
   };
 
   const handleEditStudent = () => {
-    if (!showEditStudent || !editName.trim()) return;
+    if (!showEditStudent) return;
+    const firstName = editFirstName.trim();
+    const lastName = editLastName.trim();
+    if (!firstName || !lastName) return;
     updateStudent(showEditStudent.id, {
-      name: editName.trim(),
+      firstName,
+      lastName,
+      name: buildStudentDisplayName(firstName, lastName),
       enrollmentDate: editEnrollment,
       notes: editNotes,
     });
@@ -119,7 +131,8 @@ export default function StudentsPage() {
   };
 
   const openEditModal = (student: Student) => {
-    setEditName(student.name);
+    setEditFirstName(student.firstName?.trim() || student.name.split(' ')[0] || '');
+    setEditLastName(student.lastName?.trim() || student.name.split(' ').slice(1).join(' ') || '');
     setEditEnrollment(student.enrollmentDate);
     setEditNotes(student.notes);
     setShowEditStudent(student);
@@ -157,18 +170,24 @@ export default function StudentsPage() {
     let reactivated = 0;
     let skipped = 0;
 
-    const seenNames = new Set<string>();
+    const seenKeys = new Set<string>();
     for (const record of result.records) {
-      const normalizedName = record.studentName.trim();
-      if (seenNames.has(normalizedName.toLowerCase())) continue;
-      seenNames.add(normalizedName.toLowerCase());
+      const key = `${record.lastName ?? ''}|${record.firstName ?? ''}|${record.studentName}`.toLowerCase();
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
 
-      const existing = findStudentByName(normalizedName, classId, false);
+      const existing = getStudentsByClass(classId, true).find(s =>
+        matchAttendanceRecordToStudent(record, s),
+      );
       if (existing) {
         skipped++;
       } else {
+        const input =
+          record.firstName?.trim() && record.lastName?.trim()
+            ? { firstName: record.firstName.trim(), lastName: record.lastName.trim() }
+            : record.studentName.trim();
         const { reactivated: wasReturning } = addOrReactivateStudentForClass(
-          normalizedName,
+          input,
           classId,
           importEnrollmentDate,
         );
@@ -177,10 +196,13 @@ export default function StudentsPage() {
       }
     }
 
+    const nameRepair = repairStudentNamesFromAttendanceRecords(classId, result.records);
+
     setImportResult({
       added,
       reactivated,
       skipped,
+      namesRepaired: nameRepair.updated.length,
       errors: result.errors,
     });
 
@@ -224,7 +246,7 @@ export default function StudentsPage() {
             {currentClass.name} • {currentClass.schedule} • <span className="font-medium">{students.length} enrolled</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <input
             type="file"
             ref={fileInputRef}
@@ -257,6 +279,8 @@ export default function StudentsPage() {
                 {importResult.reactivated > 0 &&
                   `, restored ${importResult.reactivated} returning student${importResult.reactivated !== 1 ? 's' : ''}`}
                 {importResult.skipped > 0 && `, skipped ${importResult.skipped} (already on roster)`}
+                {importResult.namesRepaired > 0 &&
+                  `, corrected names for ${importResult.namesRepaired} student${importResult.namesRepaired !== 1 ? 's' : ''}`}
               </p>
               {importResult.errors.length > 0 && (
                 <div className="mt-2 text-red-700">
@@ -351,15 +375,27 @@ export default function StudentsPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Student Name
+                  First Name
                 </label>
                 <input
                   type="text"
-                  value={newStudentName}
-                  onChange={e => setNewStudentName(e.target.value)}
-                  placeholder="e.g., John Smith"
+                  value={newStudentFirstName}
+                  onChange={e => setNewStudentFirstName(e.target.value)}
+                  placeholder="e.g., Abner Josue"
                   className="input"
                   autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  value={newStudentLastName}
+                  onChange={e => setNewStudentLastName(e.target.value)}
+                  placeholder="e.g., Moreno"
+                  className="input"
                 />
               </div>
               <div>
@@ -380,7 +416,7 @@ export default function StudentsPage() {
               </button>
               <button
                 onClick={handleAddStudent}
-                disabled={!newStudentName.trim()}
+                disabled={!newStudentFirstName.trim() || !newStudentLastName.trim()}
                 className="btn btn-primary flex-1 disabled:opacity-50"
               >
                 Add Student
@@ -406,14 +442,25 @@ export default function StudentsPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Name
+                  First Name
                 </label>
                 <input
                   type="text"
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
+                  value={editFirstName}
+                  onChange={e => setEditFirstName(e.target.value)}
                   className="input"
                   autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  value={editLastName}
+                  onChange={e => setEditLastName(e.target.value)}
+                  className="input"
                 />
               </div>
               <div>
@@ -446,7 +493,7 @@ export default function StudentsPage() {
               </button>
               <button
                 onClick={handleEditStudent}
-                disabled={!editName.trim()}
+                disabled={!editFirstName.trim() || !editLastName.trim()}
                 className="btn btn-primary flex-1 disabled:opacity-50"
               >
                 Save Changes
