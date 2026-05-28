@@ -51,6 +51,8 @@ WHERE table_schema = 'public'
     'casas_reading_gain',
     'casas_listening_gain',
     'casas_reading_level_complete',
-    'casas_listening_level_complete'
-)
+    'casas_listening_level_complete',
+    'first_name',
+    'last_name'
+  )
 ORDER BY column_name;

@@ -144,8 +144,63 @@ function throwSyncError(context: string, error: unknown): never {
   throw new Error(`${context}: ${msg}`);
 }
 
+function isMissingStudentNameColumnError(error: unknown): boolean {
+  const msg = getSyncErrorMessage(error);
+  return msg.includes('PGRST204') && /first_name|last_name/i.test(msg);
+}
+
+function studentToCloudRow(s: Student, includeNameParts: boolean): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    id: s.id,
+    name: s.name,
+    class_id: s.classId,
+    enrollment_date: s.enrollmentDate,
+    notes: s.notes,
+    is_dropped: s.isDropped,
+    dropped_date: s.droppedDate,
+    is_promoted: s.isPromoted ?? false,
+    promoted_date: s.promotedDate,
+    casas_reading_gain: s.casasReadingGain,
+    casas_listening_gain: s.casasListeningGain,
+    casas_reading_level_complete: s.casasReadingLevelComplete ?? false,
+    casas_listening_level_complete: s.casasListeningLevelComplete ?? false,
+    created_at: s.createdAt,
+    updated_at: s.updatedAt,
+  };
+  if (includeNameParts) {
+    row.first_name = s.firstName ?? '';
+    row.last_name = s.lastName ?? '';
+  }
+  return row;
+}
+
+function normalizeDownloadedStudent(row: Record<string, unknown>): Student {
+  const s = toCamelCase(row) as unknown as Student;
+  return {
+    ...s,
+    firstName: typeof s.firstName === 'string' ? s.firstName : '',
+    lastName: typeof s.lastName === 'string' ? s.lastName : '',
+    isPromoted: s.isPromoted ?? false,
+    promotedDate: s.promotedDate ?? null,
+    casasReadingGain: s.casasReadingGain ?? null,
+    casasListeningGain: s.casasListeningGain ?? null,
+    casasReadingLevelComplete: s.casasReadingLevelComplete ?? false,
+    casasListeningLevelComplete: s.casasListeningLevelComplete ?? false,
+  };
+}
+
 /** Actionable hint when PostgREST reports a missing table (PGRST205). */
 export function syncMissingTableHint(errorMessage: string): string | null {
+  if (
+    errorMessage.includes('PGRST204') &&
+    /first_name|last_name/i.test(errorMessage)
+  ) {
+    return (
+      'Student first/last name columns are not in Supabase yet. Open SQL Editor and run ' +
+      'supabase/migrations/20250528120000_student_first_last_name.sql from this repo. ' +
+      'Sync will still work without them (name only) until you run that migration.'
+    );
+  }
   if (
     !errorMessage.includes('PGRST205') &&
     !/Could not find the table/i.test(errorMessage)
@@ -187,13 +242,15 @@ export async function uploadClasses(classes: Class[]): Promise<void> {
 export async function uploadStudents(students: Student[]): Promise<void> {
   if (!isSupabaseConfigured()) return;
   if (students.length === 0) return;
-  
-  const data = students.map(s => toSnakeCase(s as unknown as Record<string, unknown>));
-  
-  const { error } = await supabase
-    .from('students')
-    .upsert(data, { onConflict: 'id' });
-  
+
+  let data = students.map(s => studentToCloudRow(s, true));
+  let { error } = await supabase.from('students').upsert(data, { onConflict: 'id' });
+
+  if (error && isMissingStudentNameColumnError(error)) {
+    data = students.map(s => studentToCloudRow(s, false));
+    ({ error } = await supabase.from('students').upsert(data, { onConflict: 'id' }));
+  }
+
   if (error) {
     throwSyncError('Students upload error', error);
   }
@@ -397,7 +454,7 @@ export async function downloadStudents(): Promise<Student[]> {
   
   if (error) throwSyncError('downloadStudents', error);
   
-  return (data || []).map(row => toCamelCase(row) as unknown as Student);
+  return (data || []).map(row => normalizeDownloadedStudent(row as Record<string, unknown>));
 }
 
 export async function downloadCASASTests(): Promise<CASASTest[]> {
