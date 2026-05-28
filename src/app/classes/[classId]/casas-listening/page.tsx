@@ -18,7 +18,7 @@ import {
 import { applyCasasParseResult, type CasasImportApplyResult } from '@/lib/casas-import';
 import { forceSyncNow } from '@/lib/sync';
 import { parseCASASFileFromInput, parseStudentGainsFileFromInput, normalizeStudentNameKey } from '@/lib/parsers';
-import { calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
+import { calculateCASASProgress, getColorLevel, compareStudentsByLastName, getHighestCASASScore } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
 import {
   ArrowUpTrayIcon,
@@ -91,7 +91,7 @@ export default function CASASListeningPage() {
       return { student, tests, highest, progress };
     });
     
-    data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
+    data.sort((a, b) => compareStudentsByLastName(a.student, b.student));
     setStudentsWithTests(data);
     setMaxTests(Math.max(maxTestCount, 1));
   };

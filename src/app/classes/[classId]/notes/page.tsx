@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses, getNotesByStudent, addStudentNote, deleteStudentNote, updateStudentNote, migrateOldNotesToNewSystem } from '@/lib/storage';
-import { compareByLastName, sortStudentsByLastName } from '@/lib/calculations';
+import { compareStudentsByLastName, sortStudentsByLastName } from '@/lib/calculations';
 import { Student, Class, StudentNote } from '@/types';
 import { MagnifyingGlassIcon, TrashIcon, XMarkIcon, PencilIcon, PrinterIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
@@ -191,7 +191,7 @@ export default function NotesPage() {
           const bStarts = bName.startsWith(query);
           if (aStarts && !bStarts) return -1;
           if (!aStarts && bStarts) return 1;
-          return compareByLastName(a.name, b.name);
+          return compareStudentsByLastName(a, b);
         })
     : students;
 

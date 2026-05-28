@@ -13,7 +13,7 @@ import {
   findStudentByName,
 } from '@/lib/storage';
 import { parseTestsFileFromInput, checkIsMultiTestFormat, parseMultiTestFileFromInput, MultiTestParseResult } from '@/lib/parsers';
-import { calculateTestAverage, getColorLevel, compareByLastName } from '@/lib/calculations';
+import { calculateTestAverage, getColorLevel, compareStudentsByLastName } from '@/lib/calculations';
 import { Student, Class, UnitTest } from '@/types';
 import {
   PlusIcon,
@@ -118,7 +118,7 @@ export default function UnitTestsPage() {
       return { student, tests, average };
     });
     
-    data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
+    data.sort((a, b) => compareStudentsByLastName(a.student, b.student));
     setStudentsWithTests(data);
     
     // Sort test columns by date

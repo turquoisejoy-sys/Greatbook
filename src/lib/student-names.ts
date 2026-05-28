@@ -80,3 +80,47 @@ export function matchAttendanceRecordToStudent(
 
   return false;
 }
+
+/** Find roster student for an attendance row (direct match, then last-name fallback). */
+export function findStudentForAttendanceRecord(
+  record: AttendanceImportRow,
+  roster: Student[],
+): Student | undefined {
+  const direct = roster.find(s => matchAttendanceRecordToStudent(record, s));
+  if (direct) return direct;
+
+  const fields = studentNameFieldsFromRecord(record);
+  if (!fields) return undefined;
+
+  const fileLast = normalizeNameForMatching(fields.lastName);
+  const fileFirst = normalizeNameForMatching(fields.firstName);
+
+  const candidates = roster.filter(s => {
+    if (s.lastName?.trim() && normalizeNameForMatching(s.lastName) === fileLast) return true;
+    const norm = normalizeNameForMatching(s.name);
+    if (norm === fileLast || norm === fileFirst) return true;
+    if (norm.endsWith(' ' + fileLast) || norm.startsWith(fileLast + ' ')) return true;
+    const tokens = norm.split(' ').filter(Boolean);
+    if (tokens.includes(fileLast)) return true;
+    if (tokens.includes(fileFirst)) return true;
+    return false;
+  });
+
+  if (candidates.length === 1) return candidates[0];
+
+  if (candidates.length > 1) {
+    const score = (s: Student) => {
+      const tokens = new Set(normalizeNameForMatching(s.name).split(' ').filter(Boolean));
+      let n = 0;
+      if (tokens.has(fileLast)) n += 2;
+      for (const t of fileFirst.split(' ').filter(Boolean)) {
+        if (tokens.has(t)) n += 1;
+      }
+      return n;
+    };
+    const best = [...candidates].sort((a, b) => score(b) - score(a))[0];
+    if (score(best) > 0) return best;
+  }
+
+  return undefined;
+}

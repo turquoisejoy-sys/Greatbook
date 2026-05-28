@@ -18,7 +18,7 @@ import { applyCasasParseResult, type CasasImportApplyResult } from '@/lib/casas-
 import { getCloudSyncPayload } from '@/lib/storage';
 import { forceSyncNow } from '@/lib/sync';
 import { parseCASASFileFromInput, parseStudentGainsFileFromInput, normalizeStudentNameKey } from '@/lib/parsers';
-import { calculateCASASProgress, getColorLevel, compareByLastName, getHighestCASASScore } from '@/lib/calculations';
+import { calculateCASASProgress, getColorLevel, compareStudentsByLastName, getHighestCASASScore } from '@/lib/calculations';
 import { Student, Class, CASASTest } from '@/types';
 import {
   PlusIcon,
@@ -92,7 +92,7 @@ export default function CASASReadingPage() {
       return { student, tests, highest, progress };
     });
     
-    data.sort((a, b) => compareByLastName(a.student.name, b.student.name));
+    data.sort((a, b) => compareStudentsByLastName(a.student, b.student));
     setStudentsWithTests(data);
     setMaxTests(Math.max(maxTestCount, 1)); // At least 1 column
   };

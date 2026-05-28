@@ -16,7 +16,7 @@ import {
   getWritingResultsByTest,
 } from '@/lib/storage';
 import {
-  compareByLastName,
+  compareStudentsByLastName,
   formatCasasFormScore,
   getHighestCASASTest,
   getHighestCASASScore,
@@ -258,7 +258,7 @@ export default function ExitAssessmentsPage() {
 
   const students = useMemo(() => {
     if (!mounted) return [];
-    return getStudentsByClass(classId).sort((a, b) => compareByLastName(a.name, b.name));
+    return getStudentsByClass(classId).sort((a, b) => compareStudentsByLastName(a, b));
   }, [mounted, classId]);
 
   const speakingTests = useMemo(() => getSpeakingTestsByClass(classId), [classId, mounted]);

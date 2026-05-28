@@ -20,8 +20,8 @@ import {
 import { importNamesMatch, normalizeNameForMatching } from './calculations';
 import {
   buildStudentDisplayName,
+  findStudentForAttendanceRecord,
   importNamesMatchStudent,
-  matchAttendanceRecordToStudent,
   studentNameFieldsFromRecord,
 } from './student-names';
 import type { AttendanceImportRow } from '@/types';
@@ -218,10 +218,32 @@ export async function syncFromCloud(): Promise<boolean> {
       
       return Array.from(merged.values());
     }
+
+    /** Keep local first/last when cloud record is newer but lacks split name fields. */
+    function mergeStudents(local: Student[], cloud: Student[]): Student[] {
+      const merged = mergeArrays(local, cloud);
+      return merged.map(student => {
+        const localStudent = local.find(s => s.id === student.id);
+        if (!localStudent) return student;
+        const hasLocalNames =
+          Boolean(localStudent.firstName?.trim()) && Boolean(localStudent.lastName?.trim());
+        const hasMergedNames =
+          Boolean(student.firstName?.trim()) && Boolean(student.lastName?.trim());
+        if (hasLocalNames && !hasMergedNames) {
+          return {
+            ...student,
+            firstName: localStudent.firstName,
+            lastName: localStudent.lastName,
+            name: buildStudentDisplayName(localStudent.firstName!, localStudent.lastName!),
+          };
+        }
+        return student;
+      });
+    }
     
     // Merge all data (use filtered cloud so deleted classes/students don't come back)
     const mergedClasses = withoutDeletedClasses(mergeArrays(localClasses, cloudClassesFiltered));
-    const mergedStudents = withoutDeletedStudents(mergeArrays(localStudents, cloudStudentsFiltered));
+    const mergedStudents = withoutDeletedStudents(mergeStudents(localStudents, cloudStudentsFiltered));
     const mergedCasasTests = mergeArrays(localCasasTests, cloudCasasFiltered);
     const mergedUnitTests = mergeArrays(localUnitTests, cloudUnitTestsFiltered);
     const mergedAttendance = mergeArrays(localAttendance, cloudAttendanceFiltered);
@@ -725,7 +747,7 @@ export function repairStudentNamesFromAttendanceRecords(
       skipped++;
       continue;
     }
-    const student = roster.find(s => matchAttendanceRecordToStudent(record, s));
+    const student = findStudentForAttendanceRecord(record, roster);
     if (!student) {
       skipped++;
       continue;

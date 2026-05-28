@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useReactToPrint } from 'react-to-print';
 import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses } from '@/lib/storage';
-import { getStudentsWithRanks, getColorLevel, compareByLastName } from '@/lib/calculations';
+import { getStudentsWithRanks, getColorLevel, compareStudentsByLastName } from '@/lib/calculations';
 import { Class, StudentWithStats, CACE_LEVELS, CACELevel } from '@/types';
 import {
   TrophyIcon,
@@ -94,7 +94,7 @@ export default function AnalysisPage() {
     filtered.sort((a, b) => {
       // Special case for name - sort by last name
       if (sortField === 'name') {
-        const cmp = compareByLastName(a.name, b.name);
+        const cmp = compareStudentsByLastName(a, b);
         return sortDir === 'asc' ? cmp : -cmp;
       }
 

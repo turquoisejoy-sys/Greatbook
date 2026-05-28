@@ -18,7 +18,7 @@ import {
   upsertSpeakingResultScore,
 } from '@/lib/storage';
 import { parseFinalScoreFileFromInput } from '@/lib/parsers';
-import { compareByLastName } from '@/lib/calculations';
+import { compareStudentsByLastName } from '@/lib/calculations';
 import type { Class, SpeakingTest, SpeakingTestResult, Student } from '@/types';
 import { ArrowUpTrayIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
@@ -69,7 +69,7 @@ export default function SpeakingPage() {
     setCurrentClass(cls);
     if (cls) setCurrentClassId(cls.id);
 
-    const roster = getStudentsByClass(classId).sort((a, b) => compareByLastName(a.name, b.name));
+    const roster = getStudentsByClass(classId).sort((a, b) => compareStudentsByLastName(a, b));
     setStudents(roster);
 
     const speakingTests = getSpeakingTestsByClass(classId);
