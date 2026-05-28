@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
+import { useReactToPrint } from 'react-to-print';
 import { useApp } from '@/components/AppShell';
 import { getStudentsByClass, getClasses } from '@/lib/storage';
 import { getStudentsWithRanks, getColorLevel, compareByLastName } from '@/lib/calculations';
@@ -9,6 +10,7 @@ import { Class, StudentWithStats, CACE_LEVELS, CACELevel } from '@/types';
 import {
   TrophyIcon,
   ExclamationTriangleIcon,
+  PrinterIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import StudentQuickNotes from '@/components/StudentQuickNotes';
@@ -16,6 +18,16 @@ import StudentQuickNotes from '@/components/StudentQuickNotes';
 type SortField = 'rank' | 'name' | 'casasReading' | 'casasListening' | 'tests' | 'speaking' | 'writing' | 'attendance' | 'overall';
 type SortDir = 'asc' | 'desc';
 type FilterMode = 'all' | 'top10' | 'bottom10' | 'incomplete';
+
+const FILTER_LABELS: Record<FilterMode, string> = {
+  all: 'All students',
+  top10: 'Top 10',
+  bottom10: 'Bottom 10',
+  incomplete: 'Incomplete',
+};
+
+const STICKY_TH =
+  'sticky top-0 z-20 bg-[var(--table-header)] shadow-[0_1px_0_var(--card-border)] cursor-pointer hover:bg-gray-200 select-none';
 
 export default function AnalysisPage() {
   const params = useParams();
@@ -27,6 +39,15 @@ export default function AnalysisPage() {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `Student Analysis - ${currentClass?.name ?? 'class'}`,
+    onPrintError: () => {
+      window.alert('Print failed. Try again or use your browser’s print dialog.');
+    },
+  });
 
   useEffect(() => {
     if (mounted) {
@@ -172,22 +193,143 @@ export default function AnalysisPage() {
   const rankedCount = students.filter(s => s.isComplete).length;
   const incompleteCount = students.filter(s => !s.isComplete).length;
   const levelInfo = currentClass.level !== undefined ? CACE_LEVELS[currentClass.level as CACELevel] : null;
+  const printedAt = new Date().toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
+  const renderStudentRows = () =>
+    sortedStudents.map(student => {
+      const totalRanked = students.filter(s => s.isComplete).length;
+      const isTop10 = student.rank !== null && student.rank <= 10;
+      const isBottom10 = student.rank !== null && student.rank > totalRanked - 10 && totalRanked > 10;
+
+      return (
+        <tr
+          key={student.id}
+          className={`
+            ${isTop10 ? 'bg-green-50' : ''}
+            ${isBottom10 ? 'bg-orange-50' : ''}
+          `}
+        >
+          <td className="text-center">{getRankBadge(student)}</td>
+          <td className="font-medium">
+            <span className="hidden print:inline">{student.name}</span>
+            <span className="print:hidden">
+              <StudentQuickNotes
+                classId={classId}
+                studentId={student.id}
+                studentName={student.name}
+              />
+            </span>
+          </td>
+          <td className="text-center">
+            {student.casasReadingProgress !== null ? (
+              <div>
+                <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.casasReadingProgress)}`}>
+                  {student.casasReadingProgress >= 100 ? 'GOAL!' : `${student.casasReadingProgress.toFixed(0)}%`}
+                </span>
+                <div className="text-xs text-gray-400 mt-0.5 print:text-gray-600">
+                  {student.casasReadingHighest?.toFixed(0)}
+                </div>
+              </div>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+          <td className="text-center">
+            {student.casasListeningProgress !== null ? (
+              <div>
+                <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.casasListeningProgress)}`}>
+                  {student.casasListeningProgress >= 100 ? 'GOAL!' : `${student.casasListeningProgress.toFixed(0)}%`}
+                </span>
+                <div className="text-xs text-gray-400 mt-0.5 print:text-gray-600">
+                  {student.casasListeningHighest?.toFixed(0)}
+                </div>
+              </div>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+          <td className="text-center">
+            {student.testAverage !== null ? (
+              <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.testAverage)}`}>
+                {student.testAverage.toFixed(0)}%
+              </span>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+          <td className="text-center">
+            {student.attendanceAverage !== null ? (
+              <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.attendanceAverage)}`}>
+                {student.attendanceAverage.toFixed(0)}%
+              </span>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+          <td className="text-center">
+            {student.speakingAverage !== null ? (
+              <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.speakingAverage)}`}>
+                {student.speakingAverage.toFixed(0)}%
+              </span>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+          <td className="text-center">
+            {student.writingAverage !== null ? (
+              <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.writingAverage)}`}>
+                {student.writingAverage.toFixed(0)}%
+              </span>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+          <td className="text-center font-medium">
+            {student.overallScore !== null ? (
+              <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.overallScore)}`}>
+                {student.overallScore.toFixed(0)}
+              </span>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+        </tr>
+      );
+    });
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="analysis-page-root max-w-7xl mx-auto space-y-6">
+      <div ref={printRef} className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Student Analysis</h1>
-        <p className="text-gray-600">
-          {currentClass.name} • {levelInfo?.name || `Level ${currentClass.level}`}
-        </p>
-        <p className="text-sm text-gray-500 mt-1">
-          {rankedCount} ranked, {incompleteCount} incomplete
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--cace-navy)]">Student Analysis</h1>
+          <p className="text-gray-600">
+            {currentClass.name} • {levelInfo?.name || `Level ${currentClass.level}`}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">
+            {rankedCount} ranked, {incompleteCount} incomplete
+          </p>
+          <p className="hidden print:block text-xs text-gray-600 mt-2">
+            Filter: {FILTER_LABELS[filterMode]} · Sort: {sortField} ({sortDir}) · Printed {printedAt}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary inline-flex items-center gap-2 analysis-print-hide shrink-0"
+          disabled={students.length === 0}
+          onClick={() => void handlePrint()}
+        >
+          <PrinterIcon className="w-5 h-5" aria-hidden />
+          Print
+        </button>
       </div>
 
       {/* Filter Buttons */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap analysis-print-hide">
         <button
           onClick={() => setFilterMode('all')}
           className={`btn ${filterMode === 'all' ? 'btn-primary' : 'btn-secondary'} text-sm`}
@@ -225,175 +367,72 @@ export default function AnalysisPage() {
           </Link>
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <div className="card p-0 overflow-x-auto analysis-table-scroll max-h-[calc(100vh-13rem)]">
           <table className="data-table text-sm">
             <thead>
               <tr>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none"
-                  onClick={() => handleSort('rank')}
-                >
+                <th className={`${STICKY_TH} text-center`} onClick={() => handleSort('rank')}>
                   Rank {sortField === 'rank' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none"
-                  onClick={() => handleSort('name')}
-                >
+                <th className={STICKY_TH} onClick={() => handleSort('name')}>
                   Student {sortField === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
+                <th
+                  className={`${STICKY_TH} text-center`}
                   onClick={() => handleSort('casasReading')}
                   title={`Target: ${currentClass.casasReadingTarget}`}
                 >
                   Reading % {sortField === 'casasReading' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
+                <th
+                  className={`${STICKY_TH} text-center`}
                   onClick={() => handleSort('casasListening')}
                   title={`Target: ${currentClass.casasListeningTarget}`}
                 >
                   Listening % {sortField === 'casasListening' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
-                  onClick={() => handleSort('tests')}
-                >
+                <th className={`${STICKY_TH} text-center`} onClick={() => handleSort('tests')}>
                   Tests {sortField === 'tests' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
-                  onClick={() => handleSort('attendance')}
-                >
+                <th className={`${STICKY_TH} text-center`} onClick={() => handleSort('attendance')}>
                   Attend. {sortField === 'attendance' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
-                  onClick={() => handleSort('speaking')}
-                >
+                <th className={`${STICKY_TH} text-center`} onClick={() => handleSort('speaking')}>
                   Speaking {sortField === 'speaking' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
-                  onClick={() => handleSort('writing')}
-                >
+                <th className={`${STICKY_TH} text-center`} onClick={() => handleSort('writing')}>
                   Writing {sortField === 'writing' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="cursor-pointer hover:bg-gray-200 select-none text-center"
-                  onClick={() => handleSort('overall')}
-                >
+                <th className={`${STICKY_TH} text-center`} onClick={() => handleSort('overall')}>
                   Overall {sortField === 'overall' && (sortDir === 'asc' ? '↑' : '↓')}
                 </th>
               </tr>
             </thead>
-            <tbody>
-              {sortedStudents.map(student => {
-                const totalRanked = students.filter(s => s.isComplete).length;
-                const isTop10 = student.rank !== null && student.rank <= 10;
-                const isBottom10 = student.rank !== null && student.rank > totalRanked - 10 && totalRanked > 10;
-                
-                return (
-                  <tr 
-                    key={student.id}
-                    className={`
-                      ${isTop10 ? 'bg-green-50' : ''}
-                      ${isBottom10 ? 'bg-orange-50' : ''}
-                    `}
-                  >
-                    <td className="text-center">
-                      {getRankBadge(student)}
-                    </td>
-                    <td className="font-medium">
-                      <StudentQuickNotes
-                        classId={classId}
-                        studentId={student.id}
-                        studentName={student.name}
-                      />
-                    </td>
-                    <td className="text-center">
-                      {student.casasReadingProgress !== null ? (
-                        <div>
-                          <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.casasReadingProgress)}`}>
-                            {student.casasReadingProgress >= 100 ? 'GOAL!' : `${student.casasReadingProgress.toFixed(0)}%`}
-                          </span>
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            {student.casasReadingHighest?.toFixed(0)}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {student.casasListeningProgress !== null ? (
-                        <div>
-                          <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.casasListeningProgress)}`}>
-                            {student.casasListeningProgress >= 100 ? 'GOAL!' : `${student.casasListeningProgress.toFixed(0)}%`}
-                          </span>
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            {student.casasListeningHighest?.toFixed(0)}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {student.testAverage !== null ? (
-                        <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.testAverage)}`}>
-                          {student.testAverage.toFixed(0)}%
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {student.attendanceAverage !== null ? (
-                        <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.attendanceAverage)}`}>
-                          {student.attendanceAverage.toFixed(0)}%
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {student.speakingAverage !== null ? (
-                        <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.speakingAverage)}`}>
-                          {student.speakingAverage.toFixed(0)}%
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {student.writingAverage !== null ? (
-                        <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.writingAverage)}`}>
-                          {student.writingAverage.toFixed(0)}%
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="text-center font-medium">
-                      {student.overallScore !== null ? (
-                        <span className={`px-2 py-0.5 rounded text-xs ${getProgressColor(student.overallScore)}`}>
-                          {student.overallScore.toFixed(0)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+            <tbody>{renderStudentRows()}</tbody>
           </table>
         </div>
       )}
 
+      <div className="hidden print:block text-[10px] text-gray-700 space-y-1 border-t border-gray-300 pt-3">
+        <p>
+          <strong>Colors:</strong> green 80%+ · amber 60–79% · red &lt;60% · green row = top 10 · orange row = bottom 10
+        </p>
+        <p>
+          <strong>CASAS targets:</strong> Reading {currentClass.casasReadingLevelStart}→{currentClass.casasReadingTarget}
+          {' · '}
+          Listening {currentClass.casasListeningLevelStart}→{currentClass.casasListeningTarget}
+        </p>
+        <p>
+          <strong>Weights:</strong> Reading {currentClass.rankingWeights.casasReading}% · Listening{' '}
+          {currentClass.rankingWeights.casasListening}% · Tests {currentClass.rankingWeights.tests}% · Attendance{' '}
+          {currentClass.rankingWeights.attendance}% · Speaking {currentClass.rankingWeights.speaking}% · Writing{' '}
+          {currentClass.rankingWeights.writing}%
+        </p>
+      </div>
+      </div>
+
       {/* Legend & Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 analysis-print-hide">
         <div className="card">
           <h3 className="font-semibold mb-2">Color Legend</h3>
           <div className="flex flex-wrap gap-4 text-sm">
@@ -436,7 +475,7 @@ export default function AnalysisPage() {
       </div>
 
       {/* CASAS Targets Info */}
-      <div className="card">
+      <div className="card analysis-print-hide">
         <h3 className="font-semibold mb-2">CASAS Targets (Level {currentClass.level})</h3>
         <div className="text-sm text-gray-600 grid grid-cols-2 gap-4">
           <div>
@@ -449,6 +488,46 @@ export default function AnalysisPage() {
           </div>
         </div>
       </div>
+
+      <style jsx global>{`
+        @media print {
+          @page {
+            size: landscape;
+            margin: 0.45in;
+          }
+          html,
+          body {
+            height: auto !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .sidebar {
+            display: none !important;
+          }
+          main {
+            padding: 0 !important;
+            overflow: visible !important;
+          }
+          .analysis-print-hide {
+            display: none !important;
+          }
+          .analysis-table-scroll {
+            max-height: none !important;
+            overflow: visible !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+          .analysis-page-root .card {
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
+          }
+          .data-table th {
+            position: static !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

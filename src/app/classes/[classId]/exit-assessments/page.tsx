@@ -28,10 +28,15 @@ import {
 } from '@/components/exit-assessment/ExitAssessmentPrintDocument';
 import { formatLongDate } from '@/lib/exit-assessment';
 import { downloadExitAssessmentsExcel } from '@/lib/exit-assessment-excel';
+import { getFinalL4AutoFlagStudentIds, isScoreOnPassingCusp } from '@/lib/exit-assessment-auto-flags';
 import {
+  isStudentFinalL4AutoFlagged,
+  isStudentFinalL4Flagged,
   isStudentL4Flagged,
   loadExitAssessmentChatFlags,
+  pruneDismissedFinalL4Auto,
   saveExitAssessmentChatFlags,
+  toggleStudentFinalL4Flag,
   toggleStudentL4Flag,
   type ExitAssessmentChatFlags,
   type L4FlagField,
@@ -118,28 +123,48 @@ function PassCell({
   score,
   pass,
   detail,
+  cusp,
 }: {
   score: number | null;
   pass: boolean;
   detail?: string;
+  cusp?: boolean;
 }) {
   const color = pass ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200';
+  const cuspRing = cusp ? 'ring-2 ring-amber-400/90 ring-offset-1' : '';
   const subline = detail ?? (score === null ? '—' : String(score));
   return (
-    <div className={`rounded-md border px-2 py-1 text-center ${color}`}>
+    <div
+      className={`rounded-md border px-2 py-1 text-center ${color} ${cuspRing}`}
+      title={cusp ? 'Within 1 point of pass cutoff' : undefined}
+    >
       <div className="text-xs font-semibold">{pass ? 'P' : 'NP'}</div>
       <div className="text-xs font-bold tabular-nums mt-0.5">{subline}</div>
     </div>
   );
 }
 
+function CasasColumnHeader({ label, passMin }: { label: string; passMin: number }) {
+  return (
+    <th className="p-3 text-left font-semibold text-gray-700 align-bottom">
+      <span className="block leading-tight">{label}</span>
+      <span className="block text-xs font-normal text-gray-500">(Highest)</span>
+      <span className="block mt-0.5 text-xs font-bold text-[var(--cace-navy)] tabular-nums whitespace-nowrap">
+        Pass ≥ {passMin}
+      </span>
+    </th>
+  );
+}
+
 function L4StatusCell({
   pass,
   flagged,
+  autoFlagged,
   onToggleFlag,
 }: {
   pass: boolean;
   flagged: boolean;
+  autoFlagged?: boolean;
   onToggleFlag: () => void;
 }) {
   const passFailClass = pass
@@ -154,7 +179,13 @@ function L4StatusCell({
       <button
         type="button"
         onClick={onToggleFlag}
-        title={flagged ? 'Remove follow-up flag' : 'Flag for follow-up chat'}
+        title={
+          flagged
+            ? autoFlagged
+              ? 'Remove flag (auto-suggested: analysis rank vs Final L4 mismatch)'
+              : 'Remove follow-up flag'
+            : 'Flag for follow-up chat'
+        }
         aria-pressed={flagged}
         className="absolute top-1 right-1 rounded p-0.5 hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500"
       >
@@ -215,9 +246,6 @@ export default function ExitAssessmentsPage() {
   const toggleL4Flag = (studentId: string, field: L4FlagField) => {
     setChatFlags(prev => toggleStudentL4Flag(prev, studentId, field));
   };
-
-  const flaggedCount =
-    new Set([...chatFlags.midtermL4, ...chatFlags.finalL4]).size;
 
   const currentClass = useMemo(() => {
     if (!mounted) return null;
@@ -317,6 +345,67 @@ export default function ExitAssessmentsPage() {
     writingFinal,
   ]);
 
+  const autoFinalL4FlagIds = useMemo(() => {
+    if (!currentClass || rows.length === 0) return [];
+    const finalPassByStudentId = new Map(rows.map(row => [row.studentId, row.finalPass]));
+    return getFinalL4AutoFlagStudentIds(
+      currentClass,
+      students,
+      finalPassByStudentId,
+      rows.map(row => ({
+        studentId: row.studentId,
+        readingScore: row.readingScore,
+        listeningScore: row.listeningScore,
+        speakingMidtermScore: row.speakingMidtermScore,
+        writingMidtermScore: row.writingMidtermScore,
+        speakingFinalScore: row.speakingFinalScore,
+        writingFinalScore: row.writingFinalScore,
+      })),
+      {
+        reading: currentClass.casasReadingTarget,
+        listening: currentClass.casasListeningTarget,
+        speakingMidterm: speakingMidterm?.passingScore ?? null,
+        writingMidterm: writingMidterm?.passingScore ?? null,
+        speakingFinal: speakingFinal?.passingScore ?? null,
+        writingFinal: writingFinal?.passingScore ?? null,
+      },
+    );
+  }, [
+    currentClass,
+    students,
+    rows,
+    speakingMidterm,
+    writingMidterm,
+    speakingFinal,
+    writingFinal,
+  ]);
+
+  useEffect(() => {
+    if (!mounted || !classId || !chatFlagsLoadedRef.current) return;
+    setChatFlags(prev => pruneDismissedFinalL4Auto(prev, autoFinalL4FlagIds));
+  }, [mounted, classId, autoFinalL4FlagIds]);
+
+  const isFinalL4Flagged = (studentId: string) =>
+    isStudentFinalL4Flagged(chatFlags, studentId, autoFinalL4FlagIds);
+
+  const flaggedStudentIds = useMemo(() => {
+    const ids = new Set<string>(chatFlags.midtermL4);
+    for (const row of rows) {
+      if (isStudentFinalL4Flagged(chatFlags, row.studentId, autoFinalL4FlagIds)) {
+        ids.add(row.studentId);
+      }
+    }
+    return ids;
+  }, [chatFlags, rows, autoFinalL4FlagIds]);
+
+  const autoFinalFlagCount = useMemo(
+    () =>
+      rows.filter(row =>
+        isStudentFinalL4AutoFlagged(chatFlags, row.studentId, autoFinalL4FlagIds),
+      ).length,
+    [chatFlags, rows, autoFinalL4FlagIds],
+  );
+
   const printRows: ExitStudentRow[] = useMemo(() => {
     return rows.map(row => ({
       studentId: row.studentId,
@@ -333,7 +422,7 @@ export default function ExitAssessmentsPage() {
     const exportRows = rows.map(row => ({
       ...row,
       midtermL4Flagged: isStudentL4Flagged(chatFlags, row.studentId, 'midtermL4'),
-      finalL4Flagged: isStudentL4Flagged(chatFlags, row.studentId, 'finalL4'),
+      finalL4Flagged: isStudentFinalL4Flagged(chatFlags, row.studentId, autoFinalL4FlagIds),
     }));
     downloadExitAssessmentsExcel(currentClass.name, exportRows, {
       showMidtermColumns,
@@ -345,7 +434,7 @@ export default function ExitAssessmentsPage() {
     contentRef: printRef,
     documentTitle: `Exit assessment - ${currentClass?.name || 'class'}`,
     onPrintError: () => {
-      window.alert('Print failed. Scroll to the print preview below and try again.');
+      window.alert('Print failed. Try again or use your browser’s print dialog.');
     },
   });
 
@@ -452,9 +541,16 @@ export default function ExitAssessmentsPage() {
           Click the flag on <strong>Midterm L4 P/NP</strong> or <strong>Final L4 P/NP</strong> to mark students you want to follow up with.
           Flagged cells export in yellow. Saved for this class on this device.
         </p>
-        {flaggedCount > 0 && (
+        <p className="text-xs text-gray-600">
+          <strong>Final L4</strong> is auto-flagged when: analysis rank and exit result disagree (top 10 with{' '}
+          <strong>NP</strong>, bottom 10 with <strong>P</strong>); or any CASAS / speaking / writing score is within{' '}
+          <strong>1 point</strong> of its pass cutoff (amber ring on that score). Click the flag to clear or add your own.
+        </p>
+        {flaggedStudentIds.size > 0 && (
           <p className="text-xs font-medium text-amber-800">
-            {flaggedCount} student{flaggedCount === 1 ? '' : 's'} flagged for follow-up
+            {flaggedStudentIds.size} student{flaggedStudentIds.size === 1 ? '' : 's'} flagged for follow-up
+            {autoFinalFlagCount > 0 &&
+              ` (${autoFinalFlagCount} auto-suggested on Final L4)`}
           </p>
         )}
       </div>
@@ -464,8 +560,8 @@ export default function ExitAssessmentsPage() {
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="p-3 text-left font-semibold text-gray-700">Student</th>
-              <th className="p-3 text-left font-semibold text-gray-700">CASAS Reading (Highest)</th>
-              <th className="p-3 text-left font-semibold text-gray-700">CASAS Listening (Highest)</th>
+              <CasasColumnHeader label="CASAS Reading" passMin={currentClass.casasReadingTarget} />
+              <CasasColumnHeader label="CASAS Listening" passMin={currentClass.casasListeningTarget} />
               {showMidtermColumns && (
                 <>
                   <th className="p-3 text-left font-semibold text-gray-700">Speaking Midterm</th>
@@ -487,15 +583,45 @@ export default function ExitAssessmentsPage() {
               <tr key={row.studentId} className="border-b border-gray-100">
                 <td className="p-3 font-medium text-gray-900 whitespace-nowrap">{row.studentName}</td>
                 <td className="p-2">
-                  <PassCell score={row.readingScore} pass={row.readingPass} detail={row.readingFormScore} />
+                  <PassCell
+                    score={row.readingScore}
+                    pass={row.readingPass}
+                    detail={row.readingFormScore}
+                    cusp={isScoreOnPassingCusp(row.readingScore, currentClass.casasReadingTarget)}
+                  />
                 </td>
                 <td className="p-2">
-                  <PassCell score={row.listeningScore} pass={row.listeningPass} detail={row.listeningFormScore} />
+                  <PassCell
+                    score={row.listeningScore}
+                    pass={row.listeningPass}
+                    detail={row.listeningFormScore}
+                    cusp={isScoreOnPassingCusp(row.listeningScore, currentClass.casasListeningTarget)}
+                  />
                 </td>
                 {showMidtermColumns && (
                   <>
-                    <td className="p-2"><PassCell score={row.speakingMidtermScore} pass={row.speakingMidtermPass} /></td>
-                    <td className="p-2"><PassCell score={row.writingMidtermScore} pass={row.writingMidtermPass} /></td>
+                    <td className="p-2">
+                      <PassCell
+                        score={row.speakingMidtermScore}
+                        pass={row.speakingMidtermPass}
+                        cusp={
+                          speakingMidterm
+                            ? isScoreOnPassingCusp(row.speakingMidtermScore, speakingMidterm.passingScore)
+                            : false
+                        }
+                      />
+                    </td>
+                    <td className="p-2">
+                      <PassCell
+                        score={row.writingMidtermScore}
+                        pass={row.writingMidtermPass}
+                        cusp={
+                          writingMidterm
+                            ? isScoreOnPassingCusp(row.writingMidtermScore, writingMidterm.passingScore)
+                            : false
+                        }
+                      />
+                    </td>
                     <td className="p-2">
                       <L4StatusCell
                         pass={row.midtermPass}
@@ -507,13 +633,42 @@ export default function ExitAssessmentsPage() {
                 )}
                 {showFinalColumns && (
                   <>
-                    <td className="p-2"><PassCell score={row.speakingFinalScore} pass={row.speakingFinalPass} /></td>
-                    <td className="p-2"><PassCell score={row.writingFinalScore} pass={row.writingFinalPass} /></td>
+                    <td className="p-2">
+                      <PassCell
+                        score={row.speakingFinalScore}
+                        pass={row.speakingFinalPass}
+                        cusp={
+                          speakingFinal
+                            ? isScoreOnPassingCusp(row.speakingFinalScore, speakingFinal.passingScore)
+                            : false
+                        }
+                      />
+                    </td>
+                    <td className="p-2">
+                      <PassCell
+                        score={row.writingFinalScore}
+                        pass={row.writingFinalPass}
+                        cusp={
+                          writingFinal
+                            ? isScoreOnPassingCusp(row.writingFinalScore, writingFinal.passingScore)
+                            : false
+                        }
+                      />
+                    </td>
                     <td className="p-2">
                       <L4StatusCell
                         pass={row.finalPass}
-                        flagged={isStudentL4Flagged(chatFlags, row.studentId, 'finalL4')}
-                        onToggleFlag={() => toggleL4Flag(row.studentId, 'finalL4')}
+                        flagged={isFinalL4Flagged(row.studentId)}
+                        autoFlagged={isStudentFinalL4AutoFlagged(
+                          chatFlags,
+                          row.studentId,
+                          autoFinalL4FlagIds,
+                        )}
+                        onToggleFlag={() =>
+                          setChatFlags(prev =>
+                            toggleStudentFinalL4Flag(prev, row.studentId, autoFinalL4FlagIds),
+                          )
+                        }
                       />
                     </td>
                   </>
@@ -525,24 +680,18 @@ export default function ExitAssessmentsPage() {
       </div>
 
       {printRows.length > 0 && (
-        <div className="space-y-2 print:hidden">
-          <h2 className="text-lg font-semibold text-[var(--cace-navy)]">Print preview</h2>
-          <p className="text-xs text-gray-600">
-            Layout matches the Level 3 exit sheet (two students per letter page). Use Print → Save as PDF.
-          </p>
-          <div className="overflow-x-auto">
-            <ExitAssessmentPrintDocument
-              ref={printRef}
-              students={printRows}
-              teacherName={teacherName}
-              exitDateLabel={formatLongDate(exitDate)}
-              readingPassMin={currentClass.casasReadingTarget}
-              listeningPassMin={currentClass.casasListeningTarget}
-              classIsAm={currentClass.schedule.toLowerCase().includes('morning')}
-              levelNumber={currentClass.level}
-              nextLevelNumber={Math.min(5, currentClass.level + 1)}
-            />
-          </div>
+        <div className="hidden" aria-hidden>
+          <ExitAssessmentPrintDocument
+            ref={printRef}
+            students={printRows}
+            teacherName={teacherName}
+            exitDateLabel={formatLongDate(exitDate)}
+            readingPassMin={currentClass.casasReadingTarget}
+            listeningPassMin={currentClass.casasListeningTarget}
+            classIsAm={currentClass.schedule.toLowerCase().includes('morning')}
+            levelNumber={currentClass.level}
+            nextLevelNumber={Math.min(5, currentClass.level + 1)}
+          />
         </div>
       )}
     </div>
