@@ -71,8 +71,8 @@ export default function Dashboard() {
       const students = getStudentsByClass(cls.id);
       const n = students.length;
       const promotedCount = getStudentsByClass(cls.id, true).filter(s => s.isPromoted).length;
-      const withReadingGain = students.filter(s => s.casasReadingGain != null).length;
-      const withListeningGain = students.filter(s => s.casasListeningGain != null).length;
+      const withReadingGain = students.filter(s => (s.casasReadingGain ?? 0) > 0).length;
+      const withListeningGain = students.filter(s => (s.casasListeningGain ?? 0) > 0).length;
       const readingLevelDone = students.filter(s => s.casasReadingLevelComplete).length;
       const listeningLevelDone = students.filter(s => s.casasListeningLevelComplete).length;
       const pct = (count: number) => (n === 0 ? null : (count / n) * 100);
@@ -281,7 +281,7 @@ export default function Dashboard() {
                     <span className="font-medium tabular-nums">{data?.promotedCount ?? 0}</span>
                   </div>
                   <div className="flex justify-between text-sm gap-2 items-baseline">
-                    <span className="text-gray-600 shrink-0" title="Active students with imported CASAS gain (Student Gains)">
+                    <span className="text-gray-600 shrink-0" title="Active students with positive imported CASAS gain (Student Gains)">
                       Students w/ gain:
                     </span>
                     <span className="font-medium text-right tabular-nums">

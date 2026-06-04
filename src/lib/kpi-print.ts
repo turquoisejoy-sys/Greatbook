@@ -38,8 +38,8 @@ export function getKpiSnapshot(classId: string, academicYear: string): KpiSnapsh
   const students = getStudentsByClass(classId);
   const n = students.length;
   const promotedCount = getStudentsByClass(classId, true).filter(s => s.isPromoted).length;
-  const withReadingGain = students.filter(s => s.casasReadingGain != null).length;
-  const withListeningGain = students.filter(s => s.casasListeningGain != null).length;
+  const withReadingGain = students.filter(s => (s.casasReadingGain ?? 0) > 0).length;
+  const withListeningGain = students.filter(s => (s.casasListeningGain ?? 0) > 0).length;
   const readingGains = students
     .map(s => s.casasReadingGain)
     .filter((g): g is number => g != null && !Number.isNaN(g));

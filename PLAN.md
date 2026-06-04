@@ -159,7 +159,7 @@ erDiagram
   - **Avg attendance** — class average across active students with attendance data
   - **30-Day Retention** / **YTD Retention** — see retention bullets below
   - **Promoted** — count of students marked **Promoted** who are still tied to this `classId` (inactive but listed under Promoted Students)
-  - **Students w/ gain** — `R xx% · L yy%`: among **active** students, percent with an imported **CASAS reading gain** / **listening gain** (non-null from **Import Student Gains**; `0` counts as having a gain)
+  - **Students w/ gain** — `R xx% · L yy%`: among **active** students, percent with a **positive** imported **CASAS reading gain** / **listening gain** (> 0 from **Import Student Gains**)
   - **Students w/ level comp.** — `R xx% · L yy%`: among **active** students, percent with **reading** / **listening level complete** flags from that same import
   - If there are **no** active students, the gain and level-comp. lines show **—**
 - **Retention (used in 30-day / YTD on the card):** **30-day** (entry month + follow-up attendance windows), **YTD** (enrollment from Aug 1 through today vs active/drop), plus **midyear** and **end-year** where implemented in code.
